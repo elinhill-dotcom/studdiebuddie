@@ -20,6 +20,18 @@
 
 ## 4. Appen
 Lägg nycklarna i `.env.local` och starta om `npm run dev`.
-Öppna **Logga in** i headern (`/konto`).
+Öppna **Logga in** (`/konto`).
 
 När du är inloggad sparas läxor (inkl. foton), anteckningar, kalender, glosor m.m. automatiskt i molnet.
+
+## 5. Admin
+I `.env.local` (och Vercel Environment Variables):
+
+```env
+ADMIN_PASSWORD=Studdiebuddieadmin
+SUPABASE_SERVICE_ROLE_KEY=din_service_role_nyckel
+```
+
+`service_role` hittar du under **Project Settings → API** (Secret). Den får aldrig exponeras i frontend.
+
+Admin-sida: `/admin`

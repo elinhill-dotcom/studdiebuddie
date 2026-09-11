@@ -1,6 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const PUBLIC_PREFIXES = ["/konto", "/admin", "/auth", "/api/admin"];
+
+function isPublicPath(pathname: string) {
+  if (pathname === "/") return true;
+  return PUBLIC_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
+}
+
 export async function updateSession(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -9,7 +18,10 @@ export async function updateSession(request: NextRequest) {
     request,
   });
 
-  if (!url || !key) return response;
+  if (!url || !key) {
+    // Utan Supabase: tillåt lokalt utvecklingsläge
+    return response;
+  }
 
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -30,6 +42,18 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { pathname } = request.nextUrl;
+
+  if (!user && !isPublicPath(pathname) && !pathname.startsWith("/api/")) {
+    const redirect = request.nextUrl.clone();
+    redirect.pathname = "/konto";
+    redirect.searchParams.set("next", pathname);
+    return NextResponse.redirect(redirect);
+  }
+
   return response;
 }

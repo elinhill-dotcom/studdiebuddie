@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { setProfileName } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
@@ -13,8 +13,12 @@ function KontoForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const authError = searchParams.get("error");
+  const nextPath = searchParams.get("next") || "/hem";
+  const modeParam = searchParams.get("mode");
 
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [mode, setMode] = useState<"login" | "signup">(
+    modeParam === "signup" ? "signup" : "login",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -22,6 +26,16 @@ function KontoForm() {
     authError ? "Inloggningen misslyckades. Försök igen." : "",
   );
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (modeParam === "signup") setMode("signup");
+  }, [modeParam]);
+
+  useEffect(() => {
+    if (user && !loading) {
+      router.replace(nextPath.startsWith("/") ? nextPath : "/hem");
+    }
+  }, [user, loading, nextPath, router]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,25 +48,27 @@ function KontoForm() {
           setMessage(err);
           return;
         }
-        router.push("/");
+        router.push(nextPath.startsWith("/") ? nextPath : "/hem");
         return;
       }
 
+      if (!displayName.trim()) {
+        setMessage("Skriv ditt namn.");
+        return;
+      }
       if (password.length < 6) {
         setMessage("Lösenordet behöver minst 6 tecken.");
         return;
       }
-      const err = await signUp(email.trim(), password, displayName);
+      const err = await signUp(email.trim(), password, displayName.trim());
       if (err) {
         setMessage(err);
         return;
       }
-      if (displayName.trim()) {
-        setProfileName(displayName.trim());
-        notifyDataChanged();
-      }
+      setProfileName(displayName.trim());
+      notifyDataChanged();
       setMessage(
-        "Konto skapat! Kolla mejlen om du behöver bekräfta, annars kan du logga in direkt.",
+        "Konto skapat! Kolla mejlen om du behöver bekräfta, annars logga in.",
       );
       setMode("login");
     } finally {
@@ -86,8 +102,8 @@ function KontoForm() {
     return (
       <div className="mx-auto max-w-lg space-y-5">
         <div>
-          <Link href="/" className="text-sm text-muted hover:text-ink">
-            ← Hem
+          <Link href="/hem" className="text-sm text-muted hover:text-ink">
+            ← Till din sida
           </Link>
           <h1 className="font-display mt-2 text-3xl font-medium tracking-tight">
             Ditt konto
@@ -100,6 +116,9 @@ function KontoForm() {
           {syncing && (
             <p className="text-sm text-sage">Synkar med molnet…</p>
           )}
+          <Link href="/hem" className="btn-primary inline-flex">
+            Öppna startsidan
+          </Link>
           <button
             type="button"
             className="btn-secondary"
@@ -125,8 +144,7 @@ function KontoForm() {
           {mode === "login" ? "Logga in" : "Skapa konto"}
         </h1>
         <p className="mt-1 text-muted">
-          Spara läxor, foton och pluggplan i molnet så du kan fortsätta på flera
-          enheter.
+          Ange namn, e-post och lösenord. Allt sparas säkert i Supabase.
         </p>
       </div>
 
@@ -140,6 +158,7 @@ function KontoForm() {
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="T.ex. Alex"
               autoComplete="nickname"
+              required
             />
           </label>
         )}

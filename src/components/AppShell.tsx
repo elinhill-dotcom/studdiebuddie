@@ -3,13 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import { ReminderWatcher } from "@/components/ReminderWatcher";
-import { seedDemoIfEmpty } from "@/lib/store";
 
 const links = [
-  { href: "/", label: "Hem", tone: "bg-sage-soft text-sage" },
+  { href: "/hem", label: "Hem", tone: "bg-sage-soft text-sage" },
   { href: "/laxor", label: "Läxor", tone: "bg-sky-soft text-sky" },
   { href: "/forhor", label: "Förhör", tone: "bg-coral-soft text-coral" },
   { href: "/glosor", label: "Glosor", tone: "bg-lilac-soft text-lilac" },
@@ -22,19 +20,17 @@ const links = [
 function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading, syncing } = useAuth();
-
-  useEffect(() => {
-    if (!loading && !user) seedDemoIfEmpty();
-  }, [loading, user]);
+  const isAdmin = pathname.startsWith("/admin");
+  const showAppNav = Boolean(user) && !isAdmin;
 
   return (
     <div className="flex min-h-screen flex-col">
-      <ReminderWatcher />
+      {user && <ReminderWatcher />}
       <header className="sticky top-0 z-40 border-b border-[var(--line)] bg-[rgba(246,243,238,0.9)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-3 sm:px-5">
           <div className="flex items-center justify-between gap-3">
             <Link
-              href="/"
+              href={user ? "/hem" : "/"}
               className="group inline-flex items-center transition hover:opacity-90"
             >
               <Image
@@ -46,35 +42,50 @@ function ShellInner({ children }: { children: React.ReactNode }) {
                 priority
               />
             </Link>
-            <Link
-              href="/konto"
-              className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
-            >
-              {loading ? "…" : user ? (syncing ? "Synkar…" : "Konto") : "Logga in"}
-            </Link>
+            <div className="flex items-center gap-2">
+              {!isAdmin && (
+                <Link
+                  href="/konto"
+                  className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
+                >
+                  {loading
+                    ? "…"
+                    : user
+                      ? syncing
+                        ? "Synkar…"
+                        : "Konto"
+                      : "Logga in"}
+                </Link>
+              )}
+            </div>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-1.5" aria-label="Huvudmeny">
-            {links.map((l) => {
-              const active =
-                l.href === "/"
-                  ? pathname === "/"
-                  : pathname.startsWith(l.href);
-              return (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  className={`nav-pill ${
-                    active
-                      ? `${l.tone} ring-1 ring-black/5`
-                      : "bg-white/70 text-ink-soft hover:bg-white"
-                  }`}
-                >
-                  {l.label}
-                </Link>
-              );
-            })}
-          </nav>
+          {showAppNav && (
+            <nav
+              className="flex flex-wrap items-center gap-1.5"
+              aria-label="Huvudmeny"
+            >
+              {links.map((l) => {
+                const active =
+                  l.href === "/hem"
+                    ? pathname === "/hem"
+                    : pathname.startsWith(l.href);
+                return (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={`nav-pill ${
+                      active
+                        ? `${l.tone} ring-1 ring-black/5`
+                        : "bg-white/70 text-ink-soft hover:bg-white"
+                    }`}
+                  >
+                    {l.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
         </div>
       </header>
 
