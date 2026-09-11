@@ -26,7 +26,11 @@ export function ReminderWatcher() {
         const when = new Date(r.at).getTime();
         if (Number.isNaN(when) || when > now) continue;
 
-        await showReminderNotification(r.title, r.message || "Dags att plugga.");
+        await showReminderNotification(
+          r.title,
+          r.message || "Dags att plugga.",
+          r.url,
+        );
         upsertReminder({ ...r, notified: true });
         notifyDataChanged();
       }

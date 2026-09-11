@@ -20,10 +20,15 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return Notification.requestPermission();
 }
 
-export async function showReminderNotification(title: string, body: string) {
+export async function showReminderNotification(
+  title: string,
+  body: string,
+  url?: string,
+) {
   if (typeof window === "undefined" || !("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
 
+  const targetUrl = url || "/hem";
   const reg = await navigator.serviceWorker?.getRegistration();
   if (reg?.showNotification) {
     await reg.showNotification(title, {
@@ -32,11 +37,11 @@ export async function showReminderNotification(title: string, body: string) {
       badge: "/icon.svg",
       tag: `studdiebuddie-${Date.now()}`,
       requireInteraction: true,
+      data: { url: targetUrl },
     });
     return;
   }
 
-  // fallback när SW saknas
   new Notification(title, { body });
 }
 

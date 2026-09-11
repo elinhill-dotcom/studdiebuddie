@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useAuth } from "@/components/AuthProvider";
 import { useAppData, notifyDataChanged } from "@/components/useAppData";
 import { HomeworkCard } from "@/components/HomeworkCard";
 import { HomeCalendar } from "@/components/HomeCalendar";
@@ -13,12 +14,19 @@ import { DEFAULT_HOME_MODULES } from "@/lib/types";
 
 export default function HomePage() {
   const { data, ready, refresh } = useAppData();
+  const { user } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
 
   if (!ready) {
     return <p className="text-muted">Laddar…</p>;
   }
+
+  const metaName = String(user?.user_metadata?.display_name || "").trim();
+  const greetingName =
+    data.profileName && data.profileName !== "Buddie"
+      ? data.profileName
+      : metaName || data.profileName || "där";
 
   const modules: HomeModuleId[] =
     data.homeModules?.length > 0 ? data.homeModules : DEFAULT_HOME_MODULES;
@@ -76,7 +84,7 @@ export default function HomePage() {
               type="button"
               className="group text-left"
               onClick={() => {
-                setNameDraft(data.profileName);
+                setNameDraft(greetingName === "där" ? "" : greetingName);
                 setEditingName(true);
               }}
               title="Byt namn"
@@ -84,7 +92,7 @@ export default function HomePage() {
               <h1 className="font-display text-4xl font-semibold leading-[1.05] tracking-tight text-ink sm:text-5xl">
                 Hej{" "}
                 <span className="text-sage group-hover:underline decoration-sage/40 underline-offset-4">
-                  {data.profileName}
+                  {greetingName}
                 </span>
               </h1>
             </button>

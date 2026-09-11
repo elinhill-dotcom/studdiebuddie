@@ -166,6 +166,7 @@ export async function tutorEvaluateAnswer(args: {
   material?: string;
   attemptCount?: number;
   mode?: string;
+  subject?: string;
 }): Promise<TutorTurn | null> {
   const attemptCount = Math.max(1, args.attemptCount ?? 1);
   const payload = {
@@ -176,6 +177,7 @@ export async function tutorEvaluateAnswer(args: {
     material: args.material || null,
     attemptCount,
     mode: args.mode || "single",
+    subject: args.subject || null,
   };
 
   const raw = await createStructuredResponse({
@@ -198,6 +200,8 @@ export async function tutorGenerateQuestions(args: {
   materialText: string;
   count: number;
   photoDataUrl?: string;
+  pdfDataUrl?: string;
+  pdfFileName?: string;
 }): Promise<GenerateQuestionsResult | null> {
   const content: OpenAI.Responses.ResponseInputContent[] = [
     {
@@ -212,6 +216,21 @@ export async function tutorGenerateQuestions(args: {
       image_url: args.photoDataUrl,
       detail: "auto",
     });
+  } else if (args.photoDataUrl?.startsWith("http")) {
+    content.push({
+      type: "input_image",
+      image_url: args.photoDataUrl,
+      detail: "auto",
+    });
+  }
+
+  const pdfPayload = await resolvePdfDataUrl(args.pdfDataUrl);
+  if (pdfPayload) {
+    content.push({
+      type: "input_file",
+      filename: args.pdfFileName || "laxa.pdf",
+      file_data: pdfPayload,
+    } as OpenAI.Responses.ResponseInputContent);
   }
 
   const raw = await createStructuredResponse({
@@ -240,6 +259,20 @@ export async function tutorGenerateQuestions(args: {
       }));
     if (!questions.length) return null;
     return { questions: questions.slice(0, args.count) };
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePdfDataUrl(url?: string): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith("data:application/pdf")) return url;
+  if (!url.startsWith("http")) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return `data:application/pdf;base64,${buf.toString("base64")}`;
   } catch {
     return null;
   }

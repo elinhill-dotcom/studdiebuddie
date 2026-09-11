@@ -38,6 +38,8 @@ export default function AdminPage() {
   const [hwPages, setHwPages] = useState("");
   const [hwText, setHwText] = useState("");
   const [hwPhoto, setHwPhoto] = useState<string | undefined>();
+  const [hwPdf, setHwPdf] = useState<string | undefined>();
+  const [hwPdfName, setHwPdfName] = useState<string | undefined>();
 
   const loadUsers = useCallback(async () => {
     const res = await fetch("/api/admin/users");
@@ -165,14 +167,36 @@ export default function AdminPage() {
     }
   };
 
-  const onPhoto = (file: File | null) => {
+  const onAttachment = async (file: File | null) => {
     if (!file) return;
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+      if (file.size > 5_000_000) {
+        setMessage("PDF:en är för stor (max ca 5 MB).");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setHwPdf(String(reader.result));
+        setHwPdfName(file.name);
+        setHwPhoto(undefined);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setMessage("Välj en bild eller PDF.");
+      return;
+    }
     if (file.size > 2_500_000) {
       setMessage("Bilden är för stor (max ca 2,5 MB).");
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => setHwPhoto(String(reader.result));
+    reader.onload = () => {
+      setHwPhoto(String(reader.result));
+      setHwPdf(undefined);
+      setHwPdfName(undefined);
+    };
     reader.readAsDataURL(file);
   };
 
@@ -194,6 +218,8 @@ export default function AdminPage() {
           pageHints: hwPages,
           extractedText: hwText,
           photoDataUrl: hwPhoto,
+          pdfDataUrl: hwPdf,
+          pdfFileName: hwPdfName,
         }),
       });
       const data = await res.json();
@@ -207,6 +233,8 @@ export default function AdminPage() {
       setHwPages("");
       setHwText("");
       setHwPhoto(undefined);
+      setHwPdf(undefined);
+      setHwPdfName(undefined);
       setMessage("Läxa tilldelad användaren.");
     } finally {
       setBusy(false);
@@ -489,12 +517,12 @@ export default function AdminPage() {
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium">Foto (valfritt)</span>
+            <span className="text-sm font-medium">Foto eller PDF (valfritt)</span>
             <input
               className="input-field"
               type="file"
-              accept="image/*"
-              onChange={(e) => onPhoto(e.target.files?.[0] || null)}
+              accept="image/*,application/pdf,.pdf"
+              onChange={(e) => void onAttachment(e.target.files?.[0] || null)}
             />
           </label>
           {hwPhoto && (
@@ -504,6 +532,9 @@ export default function AdminPage() {
               alt="Förhandsvisning"
               className="max-h-40 rounded-xl border border-[var(--line)]"
             />
+          )}
+          {hwPdf && (
+            <p className="text-sm text-muted">PDF: {hwPdfName || "dokument.pdf"}</p>
           )}
           <button type="submit" className="btn-primary" disabled={busy}>
             Tilldela läxa

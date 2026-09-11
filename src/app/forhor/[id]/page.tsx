@@ -7,7 +7,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { gradeAnswer, gradeVocabAnswer, rewriteQuestion } from "@/lib/ai-quiz";
 import { loadData, upsertQuiz } from "@/lib/store";
-import type { QuizSession } from "@/lib/types";
+import type { Homework, QuizSession } from "@/lib/types";
+import {
+  tutorLangFromSubject,
+  tutorLangFromSubjects,
+  type TutorLang,
+} from "@/lib/tutor-lang";
 
 type ChatMsg = {
   id: string;
@@ -20,29 +25,130 @@ function mid() {
   return crypto.randomUUID();
 }
 
-const pepCorrect = [
-  "Snyggt jobbat — du har det!",
-  "Ja! Bra tänkt.",
-  "Klockrent. Fortsätt så.",
-  "Yes! Du är inne på rätt spår.",
-];
-
-const pepWrong = [
-  "Ingen fara — så här lär man sig.",
-  "Bra försök! Vi tar det igen, lugnt.",
-  "Nästan. Du är närmare än du tror.",
-  "Helt okej att missa. Vi kör vidare.",
-];
-
-const pepNext = [
-  "Här kommer nästa:",
-  "Då kör vi vidare:",
-  "Nästa fråga till dig:",
-  "Okej, lyssna här:",
-];
+const pepByLang: Record<
+  TutorLang,
+  { ok: string[]; no: string[]; next: string[]; empty: string }
+> = {
+  sv: {
+    ok: [
+      "Snyggt jobbat — du har det!",
+      "Ja! Bra tänkt.",
+      "Klockrent. Fortsätt så.",
+      "Yes! Du är inne på rätt spår.",
+    ],
+    no: [
+      "Ingen fara — så här lär man sig.",
+      "Bra försök! Vi tar det igen, lugnt.",
+      "Nästan. Du är närmare än du tror.",
+      "Helt okej att missa. Vi kör vidare.",
+    ],
+    next: [
+      "Här kommer nästa:",
+      "Då kör vi vidare:",
+      "Nästa fråga till dig:",
+      "Okej, lyssna här:",
+    ],
+    empty: "Hmm, jag hittar inga frågor just nu.",
+  },
+  en: {
+    ok: [
+      "Nice work — you got it!",
+      "Yes! Good thinking.",
+      "Spot on. Keep going.",
+      "Great — you're on the right track.",
+    ],
+    no: [
+      "No worries — this is how we learn.",
+      "Good try! Let's try again, calmly.",
+      "Almost. You're closer than you think.",
+      "It's okay to miss it. Let's continue.",
+    ],
+    next: [
+      "Here's the next one:",
+      "Let's keep going:",
+      "Next question for you:",
+      "Okay, listen up:",
+    ],
+    empty: "Hmm, I can't find any questions right now.",
+  },
+  es: {
+    ok: [
+      "¡Bien hecho!",
+      "¡Sí! Buen razonamiento.",
+      "Exacto. Sigue así.",
+      "Genial — vas por buen camino.",
+    ],
+    no: [
+      "No pasa nada — así se aprende.",
+      "¡Buen intento! Probamos otra vez, con calma.",
+      "Casi. Estás más cerca de lo que crees.",
+      "Fallar está bien. Seguimos.",
+    ],
+    next: [
+      "Aquí va la siguiente:",
+      "Seguimos:",
+      "Siguiente pregunta:",
+      "Vale, escucha:",
+    ],
+    empty: "Hmm, no encuentro preguntas ahora.",
+  },
+  de: {
+    ok: [
+      "Super gemacht!",
+      "Ja! Gut gedacht.",
+      "Genau. Weiter so.",
+      "Toll — du bist auf dem richtigen Weg.",
+    ],
+    no: [
+      "Kein Problem — so lernt man.",
+      "Guter Versuch! Wir versuchen es nochmal, ruhig.",
+      "Fast. Du bist näher dran, als du denkst.",
+      "Fehler sind okay. Weiter geht's.",
+    ],
+    next: [
+      "Hier kommt die nächste:",
+      "Weiter geht's:",
+      "Nächste Frage:",
+      "Okay, hör zu:",
+    ],
+    empty: "Hmm, ich finde gerade keine Fragen.",
+  },
+};
 
 function pick(arr: string[]) {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function introFor(
+  lang: TutorLang,
+  opts: { vocab: boolean; multi: boolean; n: number; title: string },
+) {
+  const name = opts.title.replace(/^Glosförhör:\s*/, "");
+  if (opts.vocab) {
+    if (lang === "en")
+      return `Hi! I'm your study buddy. We'll do a vocab quiz: “${name}”. I ask — you answer. I never give the answer key, just tips and encouragement.`;
+    if (lang === "es")
+      return `¡Hola! Soy tu compañero de estudio. Haremos un quiz de vocabulario: “${name}”. Yo pregunto — tú respondes. Nunca doy la respuesta directa, solo pistas y ánimo.`;
+    if (lang === "de")
+      return `Hallo! Ich bin dein Lernbuddy. Wir machen ein Vokabelquiz: „${name}“. Ich frage — du antwortest. Ich gebe nie die direkte Lösung, nur Tipps und Mut.`;
+    return `Hej! Jag är din pluggkompis. Vi kör glosförhör: “${name}”. Jag ställer frågor — du svarar. Jag ger aldrig facit, bara pepp och tips.`;
+  }
+  if (opts.multi) {
+    if (lang === "en")
+      return `Hi! I'm your study buddy. I've read ${opts.n} of your saved homework assignments and made questions from them. Answer in your own words — I'll say if you're right or wrong, but I never give the answer key.`;
+    if (lang === "es")
+      return `¡Hola! Soy tu compañero de estudio. He leído ${opts.n} deberes guardados y he creado preguntas. Responde con tus palabras — te digo si está bien o mal, pero nunca doy la respuesta directa.`;
+    if (lang === "de")
+      return `Hallo! Ich bin dein Lernbuddy. Ich habe ${opts.n} gespeicherte Hausaufgaben gelesen und Fragen daraus gemacht. Antworte mit eigenen Worten — ich sage, ob es stimmt, aber gebe nie die direkte Lösung.`;
+    return `Hej! Jag är din pluggkompis. Jag har läst ${opts.n} sparade läxor och hittat på frågor utifrån dem. Svara med egna ord — jag säger om det är rätt eller fel, men jag ger aldrig facit.`;
+  }
+  if (lang === "en")
+    return `Hi! I'm your study buddy. I've read your uploaded material and made questions from it. Answer in your own words — I'll say if you're right or wrong, but I never give the answer key.`;
+  if (lang === "es")
+    return `¡Hola! Soy tu compañero de estudio. He leído tu material y he creado preguntas. Responde con tus palabras — te digo si está bien o mal, pero nunca doy la respuesta directa.`;
+  if (lang === "de")
+    return `Hallo! Ich bin dein Lernbuddy. Ich habe dein Material gelesen und Fragen daraus gemacht. Antworte mit eigenen Worten — ich sage, ob es stimmt, aber gebe nie die direkte Lösung.`;
+  return `Hej! Jag är din pluggkompis. Jag har läst ditt uppladdade material och hittat på frågor utifrån det. Svara med egna ord — jag säger om det är rätt eller fel, men jag ger aldrig facit.`;
 }
 
 function ChatBubble({ msg }: { msg: ChatMsg }) {
@@ -93,31 +199,56 @@ export default function ForhorSessionPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const hw = useMemo(() => {
-    if (!session) return undefined;
-    return data.homeworks.find((h) => h.id === session.homeworkIds[0]);
+  const linkedHomeworks = useMemo(() => {
+    if (!session) return [] as Homework[];
+    return session.homeworkIds
+      .map((hid) => data.homeworks.find((h) => h.id === hid))
+      .filter((h): h is Homework => Boolean(h));
   }, [session, data.homeworks]);
+
+  const hw = linkedHomeworks[0];
+  const chatLang: TutorLang =
+    session?.mode === "vocab"
+      ? tutorLangFromSubject(
+          data.vocabLists.find((v) => v.id === session.vocabListId)
+            ?.languageFrom === "spanska"
+            ? "Spanska"
+            : data.vocabLists.find((v) => v.id === session.vocabListId)
+                  ?.languageFrom === "tyska"
+              ? "Tyska"
+              : data.vocabLists.find((v) => v.id === session.vocabListId)
+                    ?.languageFrom === "engelska"
+                ? "Engelska"
+                : hw?.subject,
+        )
+      : tutorLangFromSubjects(linkedHomeworks.map((h) => h.subject));
 
   // Starta chatten en gång
   useEffect(() => {
     if (!session || booted || session.finishedAt) return;
     const q0 = session.questions[0];
-    const intro =
+    const n = session.homeworkIds.length;
+    const lang =
       session.mode === "vocab"
-        ? `Hej! Jag är din pluggkompis. Vi kör glosförhör: “${session.title.replace(/^Glosförhör:\s*/, "")}”. Jag ställer frågor — du svarar. Jag ger aldrig facit, bara pepp och tips.`
-        : `Hej! Jag är din pluggkompis. Jag har läst ditt uppladdade material och hittat på frågor utifrån det. Svara med egna ord — jag säger om det är rätt eller fel, men jag ger aldrig facit.`;
+        ? chatLang
+        : tutorLangFromSubjects(linkedHomeworks.map((h) => h.subject));
+    const pep = pepByLang[lang];
+    const intro = introFor(lang, {
+      vocab: session.mode === "vocab",
+      multi: n > 1,
+      n,
+      title: session.title,
+    });
     setMessages([
       { id: mid(), role: "ai", text: intro, tone: "pep" },
       {
         id: mid(),
         role: "ai",
-        text: q0
-          ? `${pick(pepNext)} ${q0.prompt}`
-          : "Hmm, jag hittar inga frågor just nu.",
+        text: q0 ? `${pick(pep.next)} ${q0.prompt}` : pep.empty,
       },
     ]);
     setBooted(true);
-  }, [session, booted]);
+  }, [session, booted, linkedHomeworks, chatLang]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,6 +306,19 @@ export default function ForhorSessionPage() {
           userAnswer: text,
           tip: question.tip,
           mode: session.mode,
+          subject:
+            chatLang === "en"
+              ? "Engelska"
+              : chatLang === "es"
+                ? "Spanska"
+                : chatLang === "de"
+                  ? "Tyska"
+                  : hw?.subject,
+          material: linkedHomeworks
+            .map((h) => h.extractedText || h.description)
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 6000),
         }),
       });
       if (res.ok) {
@@ -192,14 +336,16 @@ export default function ForhorSessionPage() {
           : gradeAnswer(text, question.expectedAnswer);
     }
 
+    const pep = pepByLang[chatLang];
+
     setMessages((m) => [
       ...m,
       {
         id: mid(),
         role: "ai",
         text: result.correct
-          ? `${pick(pepCorrect)} ${result.feedback}`
-          : `${pick(pepWrong)} ${result.feedback}${
+          ? `${pick(pep.ok)} ${result.feedback}`
+          : `${pick(pep.no)} ${result.feedback}${
               question.tip ? `\n\n💡 ${question.tip}` : ""
             }`,
         tone: result.correct ? "ok" : "try",
@@ -270,7 +416,7 @@ export default function ForhorSessionPage() {
     }
 
     const nextQ = questions[nextIndex];
-    pushAi(`${pick(pepNext)} ${nextQ.prompt}`);
+    pushAi(`${pick(pepByLang[chatLang].next)} ${nextQ.prompt}`);
     persist({ ...current, questions });
     setIndex(nextIndex);
     setAnswer("");

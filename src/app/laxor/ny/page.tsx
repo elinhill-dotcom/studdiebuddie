@@ -4,9 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { SUBJECTS } from "@/lib/helpers";
+import { extractTextFromPdf, readFileAsDataUrl } from "@/lib/pdf";
 import type { Homework, Subject } from "@/lib/types";
 import { upsertHomework } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
+
+const MAX_IMAGE_BYTES = 2_500_000;
+const MAX_PDF_BYTES = 5_000_000;
 
 export default function NyLaxaPage() {
   const router = useRouter();
@@ -18,21 +22,52 @@ export default function NyLaxaPage() {
   const [pageHints, setPageHints] = useState("");
   const [extractedText, setExtractedText] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>();
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | undefined>();
+  const [pdfFileName, setPdfFileName] = useState<string | undefined>();
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const onPhoto = (file: File | null) => {
+  const onAttachment = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 2_500_000) {
-      setError("Bilden är för stor (max ca 2,5 MB).");
-      return;
+    setError("");
+    setBusy(true);
+    try {
+      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        if (file.size > MAX_PDF_BYTES) {
+          setError("PDF:en är för stor (max ca 5 MB).");
+          return;
+        }
+        const [dataUrl, text] = await Promise.all([
+          readFileAsDataUrl(file),
+          extractTextFromPdf(file).catch(() => ""),
+        ]);
+        setPdfDataUrl(dataUrl);
+        setPdfFileName(file.name);
+        setPhotoDataUrl(undefined);
+        if (text.trim()) {
+          setExtractedText((prev) => prev.trim() || text.trim());
+        }
+        return;
+      }
+
+      if (!file.type.startsWith("image/")) {
+        setError("Välj en bild eller PDF.");
+        return;
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        setError("Bilden är för stor (max ca 2,5 MB).");
+        return;
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      setPhotoDataUrl(dataUrl);
+      setPdfDataUrl(undefined);
+      setPdfFileName(undefined);
+    } catch {
+      setError("Kunde inte läsa filen. Försök igen.");
+    } finally {
+      setBusy(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoDataUrl(String(reader.result));
-      setError("");
-    };
-    reader.readAsDataURL(file);
   };
 
   const submit = (e: React.FormEvent) => {
@@ -52,6 +87,8 @@ export default function NyLaxaPage() {
       helpNeeded: helpNeeded.trim(),
       pageHints: pageHints.trim(),
       photoDataUrl,
+      pdfDataUrl,
+      pdfFileName,
       extractedText:
         extractedText.trim() ||
         description.trim() ||
@@ -73,7 +110,8 @@ export default function NyLaxaPage() {
           Ny läxa
         </h1>
         <p className="mt-1 text-muted">
-          Fota häftet och skriv in text — Buddie hittar på förhörsfrågor utifrån materialet.
+          Ladda upp foto eller PDF — Buddie hittar på förhörsfrågor utifrån
+          materialet.
         </p>
       </div>
 
@@ -144,14 +182,18 @@ export default function NyLaxaPage() {
         </div>
 
         <div>
-          <label className="label">Foto av läxan</label>
+          <label className="label">Foto eller PDF</label>
           <input
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf,.pdf"
             capture="environment"
             className="input-field"
-            onChange={(e) => onPhoto(e.target.files?.[0] ?? null)}
+            disabled={busy}
+            onChange={(e) => void onAttachment(e.target.files?.[0] ?? null)}
           />
+          {busy && (
+            <p className="mt-2 text-sm text-muted">Läser filen…</p>
+          )}
           {photoDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -159,6 +201,11 @@ export default function NyLaxaPage() {
               alt="Förhandsvisning"
               className="mt-3 max-h-48 rounded-xl object-contain"
             />
+          )}
+          {pdfDataUrl && (
+            <p className="mt-3 rounded-xl bg-sky-soft/50 px-3 py-2 text-sm text-ink-soft">
+              PDF vald: <strong>{pdfFileName || "dokument.pdf"}</strong>
+            </p>
           )}
         </div>
 
@@ -168,7 +215,7 @@ export default function NyLaxaPage() {
             className="input-field min-h-28"
             value={extractedText}
             onChange={(e) => setExtractedText(e.target.value)}
-            placeholder="Skriv in viktiga punkter…"
+            placeholder="Fylls i automatiskt från PDF om möjligt…"
           />
         </div>
 
@@ -183,7 +230,7 @@ export default function NyLaxaPage() {
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
-        <button type="submit" className="btn-primary">
+        <button type="submit" className="btn-primary" disabled={busy}>
           Spara läxa
         </button>
       </form>

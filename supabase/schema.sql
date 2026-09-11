@@ -54,6 +54,8 @@ create table if not exists public.homeworks (
   help_needed text not null default '',
   page_hints text not null default '',
   photo_path text,
+  pdf_path text,
+  pdf_file_name text,
   extracted_text text not null default '',
   reminder_enabled boolean not null default true,
   created_at timestamptz not null default now()
@@ -98,6 +100,7 @@ create table if not exists public.calendar_events (
   subject text,
   notes text,
   homework_id uuid,
+  homework_ids jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -116,6 +119,7 @@ create table if not exists public.reminders (
   notified boolean not null default false,
   event_id uuid,
   homework_id uuid,
+  link_url text,
   created_at timestamptz not null default now()
 );
 

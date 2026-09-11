@@ -13,6 +13,7 @@ type Body = {
   userAnswer: string;
   tip?: string;
   mode?: string;
+  subject?: string;
   /** How many genuine attempts on this question (1-based). Optional. */
   attemptCount?: number;
   /** Optional uploaded material excerpt for grounding. */
@@ -128,6 +129,7 @@ export async function POST(req: Request) {
     material: body.material,
     attemptCount: body.attemptCount,
     mode: body.mode,
+    subject: body.subject,
   });
 
   if (ai) {

@@ -88,6 +88,17 @@ export default function LaxaDetailPage() {
           />
         )}
 
+        {hw.pdfDataUrl && (
+          <a
+            href={hw.pdfDataUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-secondary inline-flex text-sm"
+          >
+            Öppna PDF{hw.pdfFileName ? `: ${hw.pdfFileName}` : ""}
+          </a>
+        )}
+
         {hw.extractedText && (
           <div>
             <h2 className="font-display text-lg font-medium">Material</h2>

@@ -12,42 +12,51 @@ import type {
 import { DEFAULT_HOME_MODULES } from "@/lib/types";
 import { createClient } from "./client";
 
-function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
-  const match = /^data:(image\/[\w+.-]+);base64,(.+)$/.exec(dataUrl);
+function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string; mime: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
   const mime = match[1];
   const b64 = match[2];
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const ext = mime.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
-  return { blob: new Blob([bytes], { type: mime }), ext };
+  let ext = "bin";
+  if (mime.startsWith("image/")) {
+    ext = mime.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+  } else if (mime === "application/pdf") {
+    ext = "pdf";
+  }
+  return { blob: new Blob([bytes], { type: mime }), ext, mime };
 }
 
-async function uploadHomeworkPhoto(
+async function uploadHomeworkFile(
   userId: string,
   homeworkId: string,
-  photoDataUrl?: string,
+  dataUrl: string | undefined,
+  kind: "image" | "pdf",
 ): Promise<string | null> {
-  if (!photoDataUrl?.startsWith("data:image")) return null;
+  if (!dataUrl?.startsWith("data:")) return null;
+  if (kind === "image" && !dataUrl.startsWith("data:image")) return null;
+  if (kind === "pdf" && !dataUrl.startsWith("data:application/pdf")) return null;
+
   const supabase = createClient();
   if (!supabase) return null;
-  const parsed = dataUrlToBlob(photoDataUrl);
+  const parsed = dataUrlToBlob(dataUrl);
   if (!parsed) return null;
 
   const path = `${userId}/${homeworkId}.${parsed.ext}`;
   const { error } = await supabase.storage
     .from("homework-photos")
-    .upload(path, parsed.blob, { upsert: true, contentType: parsed.blob.type });
+    .upload(path, parsed.blob, { upsert: true, contentType: parsed.mime });
 
   if (error) {
-    console.error("photo upload", error.message);
+    console.error("file upload", error.message);
     return null;
   }
   return path;
 }
 
-async function signedPhotoUrl(path: string | null | undefined) {
+async function signedFileUrl(path: string | null | undefined) {
   if (!path) return undefined;
   const supabase = createClient();
   if (!supabase) return undefined;
@@ -62,8 +71,13 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
   if (!supabase) return;
 
   let photoPath: string | null = null;
+  let pdfPath: string | null = null;
+
   if (hw.photoDataUrl?.startsWith("data:image")) {
-    photoPath = await uploadHomeworkPhoto(user.id, hw.id, hw.photoDataUrl);
+    photoPath = await uploadHomeworkFile(user.id, hw.id, hw.photoDataUrl, "image");
+  }
+  if (hw.pdfDataUrl?.startsWith("data:application/pdf")) {
+    pdfPath = await uploadHomeworkFile(user.id, hw.id, hw.pdfDataUrl, "pdf");
   }
 
   const row: Record<string, unknown> = {
@@ -81,6 +95,10 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
     created_at: hw.createdAt,
   };
   if (photoPath) row.photo_path = photoPath;
+  if (pdfPath) {
+    row.pdf_path = pdfPath;
+    row.pdf_file_name = hw.pdfFileName || "laxa.pdf";
+  }
 
   const { error } = await supabase.from("homeworks").upsert(row);
   if (error) console.error("sync homework", error.message);
@@ -129,7 +147,8 @@ export async function syncCalendarEventToCloud(
     time: event.time ?? null,
     subject: event.subject ?? null,
     notes: event.notes ?? null,
-    homework_id: event.homeworkId ?? null,
+    homework_id: event.homeworkId ?? event.homeworkIds?.[0] ?? null,
+    homework_ids: event.homeworkIds ?? [],
     created_at: event.createdAt,
   });
   if (error) console.error("sync calendar", error.message);
@@ -154,6 +173,7 @@ export async function syncReminderToCloud(reminder: Reminder, user: User) {
     notified: reminder.notified,
     event_id: reminder.eventId ?? null,
     homework_id: reminder.homeworkId ?? null,
+    link_url: reminder.url ?? null,
     created_at: reminder.createdAt,
   });
   if (error) console.error("sync reminder", error.message);
@@ -300,7 +320,9 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
       description: row.description || "",
       helpNeeded: row.help_needed || "",
       pageHints: row.page_hints || "",
-      photoDataUrl: await signedPhotoUrl(row.photo_path),
+      photoDataUrl: await signedFileUrl(row.photo_path),
+      pdfDataUrl: await signedFileUrl(row.pdf_path),
+      pdfFileName: row.pdf_file_name || undefined,
       extractedText: row.extracted_text || "",
       reminderEnabled: Boolean(row.reminder_enabled),
     })),
@@ -348,6 +370,11 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
         subject: e.subject || undefined,
         notes: e.notes || undefined,
         homeworkId: e.homework_id || undefined,
+        homeworkIds: Array.isArray(e.homework_ids)
+          ? e.homework_ids
+          : e.homework_id
+            ? [e.homework_id]
+            : undefined,
         createdAt: e.created_at,
       }),
     ),
@@ -361,6 +388,7 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
         notified: Boolean(r.notified),
         eventId: r.event_id || undefined,
         homeworkId: r.homework_id || undefined,
+        url: r.link_url || undefined,
         createdAt: r.created_at,
       }),
     ),

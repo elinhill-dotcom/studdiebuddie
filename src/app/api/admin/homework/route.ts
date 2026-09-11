@@ -3,16 +3,23 @@ import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { createServiceClient } from "@/lib/supabase/admin";
 import type { Subject } from "@/lib/types";
 
-function dataUrlToBlob(dataUrl: string): { blob: Blob; ext: string } | null {
-  const match = /^data:(image\/[\w+.-]+);base64,(.+)$/.exec(dataUrl);
+function dataUrlToBlob(
+  dataUrl: string,
+): { blob: Blob; ext: string; mime: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
   const mime = match[1];
   const b64 = match[2];
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const ext = mime.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
-  return { blob: new Blob([bytes], { type: mime }), ext };
+  let ext = "bin";
+  if (mime.startsWith("image/")) {
+    ext = mime.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+  } else if (mime === "application/pdf") {
+    ext = "pdf";
+  }
+  return { blob: new Blob([bytes], { type: mime }), ext, mime };
 }
 
 export async function POST(request: Request) {
@@ -30,6 +37,8 @@ export async function POST(request: Request) {
     pageHints?: string;
     extractedText?: string;
     photoDataUrl?: string;
+    pdfDataUrl?: string;
+    pdfFileName?: string;
   } | null;
 
   if (!body?.userId || !body.title?.trim() || !body.dueDate || !body.subject) {
@@ -43,6 +52,7 @@ export async function POST(request: Request) {
     const supabase = createServiceClient();
     const id = crypto.randomUUID();
     let photoPath: string | null = null;
+    let pdfPath: string | null = null;
 
     if (body.photoDataUrl?.startsWith("data:image")) {
       const parsed = dataUrlToBlob(body.photoDataUrl);
@@ -52,7 +62,23 @@ export async function POST(request: Request) {
           .from("homework-photos")
           .upload(photoPath, parsed.blob, {
             upsert: true,
-            contentType: parsed.blob.type,
+            contentType: parsed.mime,
+          });
+        if (upErr) {
+          return NextResponse.json({ error: upErr.message }, { status: 400 });
+        }
+      }
+    }
+
+    if (body.pdfDataUrl?.startsWith("data:application/pdf")) {
+      const parsed = dataUrlToBlob(body.pdfDataUrl);
+      if (parsed) {
+        pdfPath = `${body.userId}/${id}.pdf`;
+        const { error: upErr } = await supabase.storage
+          .from("homework-photos")
+          .upload(pdfPath, parsed.blob, {
+            upsert: true,
+            contentType: "application/pdf",
           });
         if (upErr) {
           return NextResponse.json({ error: upErr.message }, { status: 400 });
@@ -76,6 +102,8 @@ export async function POST(request: Request) {
         `Läxa: ${body.title}. Ämne: ${body.subject}.`,
       reminder_enabled: true,
       photo_path: photoPath,
+      pdf_path: pdfPath,
+      pdf_file_name: pdfPath ? body.pdfFileName || "laxa.pdf" : null,
       created_at: new Date().toISOString(),
     });
 

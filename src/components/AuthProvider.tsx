@@ -48,6 +48,16 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function resolveDisplayName(user: User, existing?: string) {
+  const meta = String(user.user_metadata?.display_name || "").trim();
+  const current = String(existing || "").trim();
+  if (current && current !== "Buddie") return current;
+  if (meta) return meta;
+  if (current) return current;
+  const fromEmail = user.email?.split("@")[0]?.trim();
+  return fromEmail || "Buddie";
+}
+
 function hasContent(data: AppData) {
   return (
     data.homeworks.length > 0 ||
@@ -77,15 +87,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!cloud) return;
 
       const local = loadData();
+      const displayName = resolveDisplayName(u, cloud.profileName);
+
       if (cloudLooksEmpty(cloud) && hasContent(local)) {
+        local.profileName = resolveDisplayName(u, local.profileName);
+        saveData(local);
         await pushLocalDataToCloud(local, u);
         notifyDataChanged();
         return;
       }
 
-      if (!cloudLooksEmpty(cloud)) {
-        saveData(cloud);
-        notifyDataChanged();
+      cloud.profileName = displayName;
+      saveData(cloud);
+      notifyDataChanged();
+
+      // Se till att profilnamnet ligger rätt i molnet (inte kvar som "Buddie")
+      if (displayName && displayName !== "Buddie") {
+        await syncProfileToCloud(
+          u,
+          displayName,
+          cloud.homeModules,
+          cloud.notificationsEnabled,
+        );
       }
     } finally {
       setSyncing(false);

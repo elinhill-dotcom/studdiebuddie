@@ -2,6 +2,8 @@ export type Subject =
   | "Matematik"
   | "Svenska"
   | "Engelska"
+  | "Spanska"
+  | "Tyska"
   | "NO"
   | "SO"
   | "Historia"
@@ -29,6 +31,9 @@ export interface Homework {
   helpNeeded: string;
   pageHints: string;
   photoDataUrl?: string;
+  /** Base64 data URL eller signerad länk till PDF */
+  pdfDataUrl?: string;
+  pdfFileName?: string;
   extractedText: string;
   reminderEnabled: boolean;
 }
@@ -109,6 +114,8 @@ export interface CalendarEvent {
   subject?: Subject;
   notes?: string;
   homeworkId?: string;
+  /** Flera läxor kopplade till plugg/prov-plan */
+  homeworkIds?: string[];
   createdAt: string;
 }
 
@@ -121,6 +128,8 @@ export interface Reminder {
   notified: boolean;
   eventId?: string;
   homeworkId?: string;
+  /** Deep-länk t.ex. till förhör */
+  url?: string;
   createdAt: string;
 }
 

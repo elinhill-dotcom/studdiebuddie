@@ -30,13 +30,22 @@ function withIds(
 }
 
 function materialBlock(hw: Homework) {
+  const langNote =
+    hw.subject === "Engelska"
+      ? "engelska (skriv frågor och tips på engelska)"
+      : hw.subject === "Spanska"
+        ? "spanska (skriv frågor och tips på spanska)"
+        : hw.subject === "Tyska"
+          ? "tyska (skriv frågor och tips på tyska)"
+          : "svenska";
   return [
     `Titel: ${hw.title}`,
     `Ämne: ${hw.subject}`,
+    `Svarsspråk: ${langNote}`,
     hw.description && `Beskrivning: ${hw.description}`,
     hw.helpNeeded && `Eleven behöver extra hjälp med: ${hw.helpNeeded}`,
     hw.pageHints && `Sidhänvisning i häftet: ${hw.pageHints}`,
-    `Material från läxan:\n${hw.extractedText || "(ingen text – använd bilden om den finns)"}`,
+    `Material från läxan:\n${hw.extractedText || "(ingen text – använd bilden/PDF om den finns)"}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -55,11 +64,12 @@ export async function POST(req: Request) {
     const hasMaterial =
       Boolean(hw.extractedText?.trim()) ||
       Boolean(hw.description?.trim()) ||
-      Boolean(hw.photoDataUrl);
+      Boolean(hw.photoDataUrl) ||
+      Boolean(hw.pdfDataUrl);
 
     if (!hasMaterial) {
       return NextResponse.json(
-        { error: "Läxan saknar text eller foto att göra frågor utifrån." },
+        { error: "Läxan saknar text, foto eller PDF att göra frågor utifrån." },
         { status: 400 },
       );
     }
@@ -68,6 +78,8 @@ export async function POST(req: Request) {
       materialText: materialBlock(hw),
       count,
       photoDataUrl: hw.photoDataUrl,
+      pdfDataUrl: hw.pdfDataUrl,
+      pdfFileName: hw.pdfFileName,
     });
 
     if (ai?.questions?.length) {

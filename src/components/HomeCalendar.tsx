@@ -15,7 +15,8 @@ import {
   upsertReminder,
 } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
-import { TimeInput24 } from "@/components/TimeInput24";
+import { ExamPlanner } from "@/components/ExamPlanner";
+import Link from "next/link";
 
 const WEEKDAYS = ["M", "T", "O", "T", "F", "L", "S"];
 
@@ -83,6 +84,7 @@ export function HomeCalendar({
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState(() => toKey(new Date()));
   const [showForm, setShowForm] = useState(false);
+  const [showExamPlan, setShowExamPlan] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState<CalendarEventType>("study");
   const [time, setTime] = useState("17:00");
@@ -301,41 +303,62 @@ export function HomeCalendar({
           })}
         </p>
 
-        {selectedEvents.map((ev) => (
-          <div
-            key={ev.id}
-            className="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-2.5 py-1.5 text-sm"
-          >
-            <div className="min-w-0">
-              <span
-                className={`tag mr-1.5 ${
-                  ev.type === "exam"
-                    ? "tag-exam"
-                    : ev.type === "study"
-                      ? "tag-study"
-                      : "tag-homework"
-                }`}
-              >
-                {typeLabel[ev.type]}
-              </span>
-              <span className="font-medium">{ev.title}</span>
-              {ev.time && (
-                <span className="ml-1 text-xs text-muted">{ev.time}</span>
+        {selectedEvents.map((ev) => {
+          const hwIds = ev.homeworkIds?.length
+            ? ev.homeworkIds
+            : ev.homeworkId
+              ? [ev.homeworkId]
+              : [];
+          const forhorHref =
+            hwIds.length > 0
+              ? `/forhor/start?homeworks=${hwIds.join(",")}`
+              : null;
+          return (
+            <div
+              key={ev.id}
+              className="space-y-1 rounded-lg bg-white/70 px-2.5 py-1.5 text-sm"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span
+                    className={`tag mr-1.5 ${
+                      ev.type === "exam"
+                        ? "tag-exam"
+                        : ev.type === "study"
+                          ? "tag-study"
+                          : "tag-homework"
+                    }`}
+                  >
+                    {typeLabel[ev.type]}
+                  </span>
+                  <span className="font-medium">{ev.title}</span>
+                  {ev.time && (
+                    <span className="ml-1 text-xs text-muted">{ev.time}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn-ghost px-1.5 text-xs text-danger"
+                  onClick={() => {
+                    deleteCalendarEvent(ev.id);
+                    notifyDataChanged();
+                    onChange();
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              {forhorHref && (ev.type === "study" || ev.type === "exam") && (
+                <Link
+                  href={forhorHref}
+                  className="text-xs font-semibold text-coral hover:underline"
+                >
+                  Starta läxförhör →
+                </Link>
               )}
             </div>
-            <button
-              type="button"
-              className="btn-ghost px-1.5 text-xs text-danger"
-              onClick={() => {
-                deleteCalendarEvent(ev.id);
-                notifyDataChanged();
-                onChange();
-              }}
-            >
-              ×
-            </button>
-          </div>
-        ))}
+          );
+        })}
 
         {selectedHomework.map((hw) => (
           <div
@@ -360,18 +383,38 @@ export function HomeCalendar({
         {selectedEvents.length === 0 &&
           selectedHomework.length === 0 &&
           selectedReminders.length === 0 &&
-          !showForm && (
+          !showForm &&
+          !showExamPlan && (
             <p className="text-xs text-muted">Inget inbokat den här dagen.</p>
           )}
 
-        {!showForm ? (
-          <button
-            type="button"
-            className="btn-secondary w-full py-1.5 text-sm"
-            onClick={() => setShowForm(true)}
-          >
-            + Lägg till
-          </button>
+        {!showForm && !showExamPlan ? (
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className="btn-primary w-full py-1.5 text-sm"
+              onClick={() => setShowExamPlan(true)}
+            >
+              Planera prov + plugg
+            </button>
+            <button
+              type="button"
+              className="btn-secondary w-full py-1.5 text-sm"
+              onClick={() => setShowForm(true)}
+            >
+              + Lägg till
+            </button>
+          </div>
+        ) : showExamPlan ? (
+          <ExamPlanner
+            homeworks={homeworks}
+            defaultExamDate={selected}
+            onDone={() => {
+              setShowExamPlan(false);
+              onChange();
+            }}
+            onCancel={() => setShowExamPlan(false)}
+          />
         ) : (
           <form onSubmit={saveEvent} className="space-y-2 rounded-xl bg-white/80 p-2.5">
             <input

@@ -35,3 +35,11 @@ SUPABASE_SERVICE_ROLE_KEY=din_service_role_nyckel
 `service_role` hittar du under **Project Settings → API** (Secret). Den får aldrig exponeras i frontend.
 
 Admin-sida: `/admin`
+
+## 6. PDF-stöd
+Om databasen redan körts utan PDF-kolumner, kör även `pdf-migration.sql` i SQL Editor.
+
+## 7. Provplan + påminnelser
+Kör `exam-plan-migration.sql` för kolumnerna `homework_ids` och `link_url`.
+
+Pushnotiser i mobilen: lägg till Studdiebuddie på hemskärmen (PWA), tillåt notiser när appen frågar, och håll appen installerad. Påminnelserna skickas via service worker när tiden är inne.

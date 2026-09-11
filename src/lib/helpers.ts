@@ -4,6 +4,8 @@ export const SUBJECTS: Subject[] = [
   "Matematik",
   "Svenska",
   "Engelska",
+  "Spanska",
+  "Tyska",
   "NO",
   "SO",
   "Historia",
