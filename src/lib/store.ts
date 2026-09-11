@@ -163,14 +163,49 @@ export function upsertHomework(hw: Homework): AppData {
   else data.homeworks.unshift(hw);
   saveData(data);
   cloudSync?.onHomeworkUpsert?.(hw);
-  return data;
+  // Spegla läxans deadline i kalendern som egen händelse
+  ensureHomeworkOnCalendar(hw);
+  return loadData();
+}
+
+/** Skapa/uppdatera fristående kalenderhändelse för läxans datum */
+export function ensureHomeworkOnCalendar(hw: Homework): void {
+  const data = loadData();
+  const existing = data.calendarEvents.find(
+    (e) => e.homeworkId === hw.id && e.type === "homework",
+  );
+  const event: CalendarEvent = {
+    id: existing?.id || crypto.randomUUID(),
+    title: hw.title,
+    type: "homework",
+    date: hw.dueDate,
+    subject: hw.subject,
+    homeworkId: hw.id,
+    notes: existing?.notes,
+    time: existing?.time,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+  };
+  const eidx = data.calendarEvents.findIndex((e) => e.id === event.id);
+  if (eidx >= 0) data.calendarEvents[eidx] = event;
+  else data.calendarEvents.unshift(event);
+  saveData(data);
+  cloudSync?.onCalendarUpsert?.(event);
 }
 
 export function deleteHomework(id: string): AppData {
   const data = loadData();
   data.homeworks = data.homeworks.filter((h) => h.id !== id);
+  const removedEvents = data.calendarEvents.filter(
+    (e) => e.homeworkId === id && e.type === "homework",
+  );
+  data.calendarEvents = data.calendarEvents.filter(
+    (e) => !(e.homeworkId === id && e.type === "homework"),
+  );
   saveData(data);
   cloudSync?.onHomeworkDelete?.(id);
+  for (const ev of removedEvents) {
+    cloudSync?.onCalendarDelete?.(ev.id);
+  }
   return data;
 }
 

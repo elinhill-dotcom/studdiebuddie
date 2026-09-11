@@ -11,7 +11,9 @@ import type {
 import { SUBJECTS } from "@/lib/helpers";
 import {
   deleteCalendarEvent,
+  loadData,
   upsertCalendarEvent,
+  upsertHomework,
   upsertReminder,
 } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
@@ -24,7 +26,7 @@ const WEEKDAYS = ["M", "T", "O", "T", "F", "L", "S"];
 const typeLabel: Record<CalendarEventType, string> = {
   exam: "Prov",
   study: "Plugg",
-  homework: "Deadline",
+  homework: "Läxa",
 };
 
 type DayMark = "exam" | "study" | "homework" | "reminder";
@@ -87,10 +89,11 @@ export function HomeCalendar({
   const [showForm, setShowForm] = useState(false);
   const [showExamPlan, setShowExamPlan] = useState(false);
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<CalendarEventType>("study");
-  const [time, setTime] = useState("17:00");
+  const [type, setType] = useState<CalendarEventType>("exam");
+  const [time, setTime] = useState("09:00");
   const [subject, setSubject] = useState<Subject>("Matematik");
   const [withReminder, setWithReminder] = useState(true);
+  const [linkedHomeworkId, setLinkedHomeworkId] = useState("");
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -140,8 +143,16 @@ export function HomeCalendar({
   }, [cursor]);
 
   const selectedEvents = byDate.get(selected) || [];
+  const linkedHwIds = new Set(
+    selectedEvents
+      .filter((e) => e.type === "homework" && e.homeworkId)
+      .map((e) => e.homeworkId as string),
+  );
   const selectedHomework = homeworks.filter(
-    (h) => h.dueDate === selected && h.status !== "done",
+    (h) =>
+      h.dueDate === selected &&
+      h.status !== "done" &&
+      !linkedHwIds.has(h.id),
   );
   const selectedReminders = reminders.filter((r) => {
     if (!r.enabled) return false;
@@ -149,8 +160,45 @@ export function HomeCalendar({
   });
   const todayKey = toKey(new Date());
 
+  const openForm = (t: CalendarEventType) => {
+    setType(t);
+    setTitle("");
+    setLinkedHomeworkId("");
+    setTime(t === "study" ? "17:00" : "09:00");
+    setWithReminder(true);
+    setShowExamPlan(false);
+    setShowForm(true);
+  };
+
   const saveEvent = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Lägg in befintlig läxa på vald dag
+    if (type === "homework" && linkedHomeworkId) {
+      const data = loadData();
+      const hw = data.homeworks.find((h) => h.id === linkedHomeworkId);
+      if (!hw) return;
+      upsertHomework({ ...hw, dueDate: selected });
+      if (withReminder) {
+        const base = new Date(`${selected}T${time || "09:00"}:00`);
+        upsertReminder({
+          id: crypto.randomUUID(),
+          title: `Läxa: ${hw.title}`,
+          message: `Deadline för “${hw.title}”.`,
+          at: new Date(base.getTime() - 60 * 60_000).toISOString(),
+          enabled: true,
+          notified: false,
+          homeworkId: hw.id,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      notifyDataChanged();
+      onChange();
+      setShowForm(false);
+      setLinkedHomeworkId("");
+      return;
+    }
+
     if (!title.trim()) return;
     const event: CalendarEvent = {
       id: crypto.randomUUID(),
@@ -164,9 +212,15 @@ export function HomeCalendar({
     upsertCalendarEvent(event);
     if (withReminder) {
       const base = new Date(`${selected}T${time || "09:00"}:00`);
+      const label =
+        type === "exam"
+          ? `Prov: ${event.title}`
+          : type === "homework"
+            ? `Läxa: ${event.title}`
+            : event.title;
       upsertReminder({
         id: crypto.randomUUID(),
-        title: type === "exam" ? `Prov: ${event.title}` : event.title,
+        title: label,
         message: `Dags för ${event.title}.`,
         at: new Date(base.getTime() - 60 * 60_000).toISOString(),
         enabled: true,
@@ -349,14 +403,22 @@ export function HomeCalendar({
                   ×
                 </button>
               </div>
-              {forhorHref && (ev.type === "study" || ev.type === "exam") && (
-                <Link
-                  href={forhorHref}
-                  className="text-xs font-semibold text-coral hover:underline"
-                >
-                  Starta läxförhör →
-                </Link>
-              )}
+                {ev.type === "homework" && ev.homeworkId && (
+                  <Link
+                    href={`/laxor/${ev.homeworkId}`}
+                    className="text-xs font-semibold text-sage hover:underline"
+                  >
+                    Öppna läxa →
+                  </Link>
+                )}
+                {forhorHref && (ev.type === "study" || ev.type === "exam") && (
+                  <Link
+                    href={forhorHref}
+                    className="text-xs font-semibold text-coral hover:underline"
+                  >
+                    Starta läxförhör →
+                  </Link>
+                )}
             </div>
           );
         })}
@@ -394,16 +456,23 @@ export function HomeCalendar({
             <button
               type="button"
               className="btn-primary w-full py-1.5 text-sm"
-              onClick={() => setShowExamPlan(true)}
+              onClick={() => openForm("exam")}
             >
-              Planera prov + plugg
+              + Lägg till prov
             </button>
             <button
               type="button"
               className="btn-secondary w-full py-1.5 text-sm"
-              onClick={() => setShowForm(true)}
+              onClick={() => openForm("homework")}
             >
-              + Lägg till
+              + Lägg till läxa
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full py-1.5 text-sm"
+              onClick={() => setShowExamPlan(true)}
+            >
+              Planera pluggdagar inför prov
             </button>
           </div>
         ) : showExamPlan ? (
@@ -418,36 +487,79 @@ export function HomeCalendar({
           />
         ) : (
           <form onSubmit={saveEvent} className="space-y-2 rounded-xl bg-white/80 p-2.5">
-            <input
-              className="input-field py-1.5 text-sm"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Titel"
-              autoFocus
-            />
+            <p className="text-xs font-semibold text-muted">
+              {type === "exam"
+                ? "Nytt prov (fristående)"
+                : type === "homework"
+                  ? "Läxa i kalendern"
+                  : "Pluggtillfälle"}
+            </p>
+
+            {type === "homework" ? (
+              <select
+                className="input-field py-1.5 text-sm"
+                value={linkedHomeworkId}
+                onChange={(e) => {
+                  setLinkedHomeworkId(e.target.value);
+                  const hw = homeworks.find((h) => h.id === e.target.value);
+                  if (hw) {
+                    setTitle(hw.title);
+                    setSubject(hw.subject);
+                  }
+                }}
+                required
+              >
+                <option value="">Välj sparad läxa…</option>
+                {homeworks
+                  .filter((h) => h.status !== "done")
+                  .map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.title} ({h.subject})
+                    </option>
+                  ))}
+              </select>
+            ) : (
+              <input
+                className="input-field py-1.5 text-sm"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={type === "exam" ? "Provets titel" : "Titel"}
+                autoFocus
+                required
+              />
+            )}
+
             <div className="grid grid-cols-2 gap-2">
               <select
                 className="input-field py-1.5 text-sm"
                 value={type}
-                onChange={(e) => setType(e.target.value as CalendarEventType)}
+                onChange={(e) => {
+                  const t = e.target.value as CalendarEventType;
+                  setType(t);
+                  if (t !== "homework") setLinkedHomeworkId("");
+                }}
               >
                 <option value="exam">Prov</option>
-                <option value="study">Läxtillfälle</option>
-                <option value="homework">Deadline</option>
+                <option value="homework">Läxa</option>
+                <option value="study">Plugg</option>
               </select>
               <TimeInput24 value={time} onChange={setTime} className="w-full" />
             </div>
-            <select
-              className="input-field py-1.5 text-sm"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value as Subject)}
-            >
-              {SUBJECTS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+
+            {type !== "homework" && (
+              <select
+                className="input-field py-1.5 text-sm"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value as Subject)}
+              >
+                {SUBJECTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <label className="flex items-center gap-2 text-xs text-ink-soft">
               <input
                 type="checkbox"

@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useAppData, notifyDataChanged } from "@/components/useAppData";
 import { HomeworkCard } from "@/components/HomeworkCard";
 import { HomeCalendar } from "@/components/HomeCalendar";
 import { ModulePicker } from "@/components/ModulePicker";
 import { weakTopicsFromResults } from "@/lib/helpers";
-import { setProfileName } from "@/lib/store";
+import { ensureHomeworkOnCalendar, setProfileName } from "@/lib/store";
 import type { HomeModuleId } from "@/lib/types";
 import { DEFAULT_HOME_MODULES } from "@/lib/types";
 
@@ -17,6 +17,27 @@ export default function HomePage() {
   const { user } = useAuth();
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+
+  // Spegla befintliga läxor in i kalendern (fristående läxhändelser)
+  useEffect(() => {
+    if (!ready || !user) return;
+    let changed = false;
+    for (const hw of data.homeworks) {
+      if (hw.status === "done") continue;
+      const has = data.calendarEvents.some(
+        (e) => e.homeworkId === hw.id && e.type === "homework",
+      );
+      if (!has) {
+        ensureHomeworkOnCalendar(hw);
+        changed = true;
+      }
+    }
+    if (changed) {
+      notifyDataChanged();
+      refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kör när data är redo / user byts
+  }, [ready, user?.id]);
 
   if (!ready) {
     return <p className="text-muted">Laddar…</p>;

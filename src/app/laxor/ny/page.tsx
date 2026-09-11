@@ -225,7 +225,7 @@ export default function NyLaxaPage() {
             checked={reminderEnabled}
             onChange={(e) => setReminderEnabled(e.target.checked)}
           />
-          Visa i kommande deadlines
+          Visa deadline i kalendern
         </label>
 
         {error && <p className="text-sm text-danger">{error}</p>}
