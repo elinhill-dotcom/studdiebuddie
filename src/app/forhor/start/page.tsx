@@ -1,10 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { inventQuestionsFromHomework } from "@/lib/invent-questions";
-import { loadData, upsertQuiz } from "@/lib/store";
+import { hasHomeworkFiles, hasQuizMaterial } from "@/lib/helpers";
+import { loadData, upsertHomework, upsertQuiz } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
+import { HomeworkAttachments } from "@/components/HomeworkAttachments";
 import type { Homework, QuizQuestion, QuizSession } from "@/lib/types";
 import Link from "next/link";
 
@@ -42,22 +44,23 @@ function StartInner() {
   const multiParam = params.get("homeworks");
   const router = useRouter();
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("Läser ditt material…");
+  const [status, setStatus] = useState("Förbereder…");
+  const [needsUpload, setNeedsUpload] = useState<Homework | null>(null);
+  const [uploadPatch, setUploadPatch] = useState({
+    photoDataUrl: undefined as string | undefined,
+    pdfDataUrl: undefined as string | undefined,
+    pdfFileName: undefined as string | undefined,
+    extractedText: "",
+  });
+  const [pendingIds, setPendingIds] = useState<string[] | null>(null);
+  const skippedUpload = useRef(new Set<string>());
+  const started = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      const ids = multiParam
-        ? multiParam.split(",").map((s) => s.trim()).filter(Boolean)
-        : singleId
-          ? [singleId]
-          : [];
-
-      if (!ids.length) {
-        setError("Ingen läxa vald.");
-        return;
-      }
+  const runQuiz = useCallback(
+    async (ids: string[]) => {
+      setNeedsUpload(null);
+      setError("");
+      setStatus("Läser ditt material…");
 
       const data = loadData();
       const homeworks = ids
@@ -69,13 +72,23 @@ function StartInner() {
         return;
       }
 
-      const usable = homeworks.filter(
-        (hw) =>
-          Boolean(hw.extractedText?.trim()) ||
-          Boolean(hw.description?.trim()) ||
-          Boolean(hw.pdfDataUrl),
+      // Erbjud filuppladdning om foto/PDF saknas (kan hoppas över)
+      const missing = homeworks.find(
+        (hw) => !hasHomeworkFiles(hw) && !skippedUpload.current.has(hw.id),
       );
+      if (missing) {
+        setPendingIds(ids);
+        setNeedsUpload(missing);
+        setUploadPatch({
+          photoDataUrl: missing.photoDataUrl,
+          pdfDataUrl: missing.pdfDataUrl,
+          pdfFileName: missing.pdfFileName,
+          extractedText: missing.extractedText || "",
+        });
+        return;
+      }
 
+      const usable = homeworks.filter(hasQuizMaterial);
       if (!usable.length) {
         setError(
           "Lägg till text, foto eller PDF på läxorna först, så Buddie kan hitta på frågor.",
@@ -90,7 +103,6 @@ function StartInner() {
           : "Buddie hittar på frågor utifrån ditt material…",
       );
 
-      // Fördela frågor jämnt, max 12 totalt
       const totalTarget = multi ? Math.min(12, usable.length * 3) : 6;
       const perHw = Math.max(2, Math.ceil(totalTarget / usable.length));
 
@@ -98,14 +110,11 @@ function StartInner() {
       let anyAi = false;
 
       for (const hw of usable) {
-        if (cancelled) return;
         setStatus(`Skapar frågor från “${hw.title}”…`);
         const { questions, source } = await generateForHomework(hw, perHw);
         if (source === "ai") anyAi = true;
         allQuestions.push(...questions);
       }
-
-      if (cancelled) return;
 
       const questions = allQuestions.slice(0, multi ? 12 : 6);
       if (!questions.length) {
@@ -138,13 +147,97 @@ function StartInner() {
           : "Klart (lokala frågor) — startar chatten…",
       );
       router.replace(`/forhor/${session.id}`);
-    }
+    },
+    [router],
+  );
 
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [singleId, multiParam, router]);
+  useEffect(() => {
+    if (started.current) return;
+    const ids = multiParam
+      ? multiParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : singleId
+        ? [singleId]
+        : [];
+
+    if (!ids.length) {
+      setError("Ingen läxa vald.");
+      return;
+    }
+    started.current = true;
+    void runQuiz(ids);
+  }, [singleId, multiParam, runQuiz]);
+
+  const saveUploadAndContinue = () => {
+    if (!needsUpload || !pendingIds) return;
+    if (!uploadPatch.photoDataUrl && !uploadPatch.pdfDataUrl && !uploadPatch.extractedText.trim()) {
+      setError("Ladda upp en fil eller skriv in text innan du fortsätter.");
+      return;
+    }
+    const text =
+      uploadPatch.extractedText.trim() ||
+      needsUpload.description.trim() ||
+      `Läxa: ${needsUpload.title}. Ämne: ${needsUpload.subject}.`;
+    upsertHomework({
+      ...needsUpload,
+      photoDataUrl: uploadPatch.photoDataUrl,
+      pdfDataUrl: uploadPatch.pdfDataUrl,
+      pdfFileName: uploadPatch.pdfFileName,
+      extractedText: text,
+    });
+    notifyDataChanged();
+    skippedUpload.current.add(needsUpload.id);
+    void runQuiz(pendingIds);
+  };
+
+  const skipUpload = () => {
+    if (!needsUpload || !pendingIds) return;
+    skippedUpload.current.add(needsUpload.id);
+    void runQuiz(pendingIds);
+  };
+
+  if (needsUpload) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <div className="panel space-y-4 p-5 sm:p-6">
+          <h1 className="font-display text-2xl font-medium tracking-tight">
+            Ladda upp material
+          </h1>
+          <p className="text-sm text-ink-soft">
+            “{needsUpload.title}” har ingen foto/PDF ännu. Ladda upp nu — eller
+            fortsätt utan fil om beskrivningen räcker.
+          </p>
+          <HomeworkAttachments
+            value={uploadPatch}
+            onChange={(next) =>
+              setUploadPatch({
+                photoDataUrl: next.photoDataUrl,
+                pdfDataUrl: next.pdfDataUrl,
+                pdfFileName: next.pdfFileName,
+                extractedText: next.extractedText,
+              })
+            }
+            optionalHint={false}
+          />
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={saveUploadAndContinue}
+            >
+              Spara och starta
+            </button>
+            <button type="button" className="btn-secondary" onClick={skipUpload}>
+              Fortsätt utan fil
+            </button>
+            <Link href="/forhor" className="btn-ghost">
+              Avbryt
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (

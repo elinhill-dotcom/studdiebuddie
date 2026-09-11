@@ -92,6 +92,7 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
     page_hints: hw.pageHints,
     extracted_text: hw.extractedText,
     reminder_enabled: hw.reminderEnabled,
+    recurring_weekly: Boolean(hw.recurringWeekly),
     created_at: hw.createdAt,
   };
   if (photoPath) row.photo_path = photoPath;
@@ -327,6 +328,7 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
       pdfFileName: row.pdf_file_name || undefined,
       extractedText: row.extracted_text || "",
       reminderEnabled: Boolean(row.reminder_enabled),
+      recurringWeekly: Boolean(row.recurring_weekly),
     })),
   );
 

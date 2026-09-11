@@ -58,6 +58,7 @@ create table if not exists public.homeworks (
   pdf_file_name text,
   extracted_text text not null default '',
   reminder_enabled boolean not null default true,
+  recurring_weekly boolean not null default false,
   created_at timestamptz not null default now()
 );
 

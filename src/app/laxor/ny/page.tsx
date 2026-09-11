@@ -4,14 +4,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { SUBJECTS } from "@/lib/helpers";
-import { extractTextFromPdf, readFileAsDataUrl } from "@/lib/pdf";
 import type { Homework, Subject } from "@/lib/types";
-import { ensureHomeworkReminder, loadData, upsertCalendarEvent, upsertHomework } from "@/lib/store";
+import {
+  ensureHomeworkReminder,
+  loadData,
+  upsertCalendarEvent,
+  upsertHomework,
+} from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
 import { TimeInput24 } from "@/components/TimeInput24";
-
-const MAX_IMAGE_BYTES = 2_500_000;
-const MAX_PDF_BYTES = 5_000_000;
+import { HomeworkAttachments } from "@/components/HomeworkAttachments";
 
 export default function NyLaxaPage() {
   const router = useRouter();
@@ -21,56 +23,16 @@ export default function NyLaxaPage() {
   const [description, setDescription] = useState("");
   const [helpNeeded, setHelpNeeded] = useState("");
   const [pageHints, setPageHints] = useState("");
-  const [extractedText, setExtractedText] = useState("");
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>();
-  const [pdfDataUrl, setPdfDataUrl] = useState<string | undefined>();
-  const [pdfFileName, setPdfFileName] = useState<string | undefined>();
+  const [attachments, setAttachments] = useState({
+    photoDataUrl: undefined as string | undefined,
+    pdfDataUrl: undefined as string | undefined,
+    pdfFileName: undefined as string | undefined,
+    extractedText: "",
+  });
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState("09:00");
+  const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const onAttachment = async (file: File | null) => {
-    if (!file) return;
-    setError("");
-    setBusy(true);
-    try {
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        if (file.size > MAX_PDF_BYTES) {
-          setError("PDF:en är för stor (max ca 5 MB).");
-          return;
-        }
-        const [dataUrl, text] = await Promise.all([
-          readFileAsDataUrl(file),
-          extractTextFromPdf(file).catch(() => ""),
-        ]);
-        setPdfDataUrl(dataUrl);
-        setPdfFileName(file.name);
-        setPhotoDataUrl(undefined);
-        if (text.trim()) {
-          setExtractedText((prev) => prev.trim() || text.trim());
-        }
-        return;
-      }
-
-      if (!file.type.startsWith("image/")) {
-        setError("Välj en bild eller PDF.");
-        return;
-      }
-      if (file.size > MAX_IMAGE_BYTES) {
-        setError("Bilden är för stor (max ca 2,5 MB).");
-        return;
-      }
-      const dataUrl = await readFileAsDataUrl(file);
-      setPhotoDataUrl(dataUrl);
-      setPdfDataUrl(undefined);
-      setPdfFileName(undefined);
-    } catch {
-      setError("Kunde inte läsa filen. Försök igen.");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,20 +50,21 @@ export default function NyLaxaPage() {
       description: description.trim(),
       helpNeeded: helpNeeded.trim(),
       pageHints: pageHints.trim(),
-      photoDataUrl,
-      pdfDataUrl,
-      pdfFileName,
+      photoDataUrl: attachments.photoDataUrl,
+      pdfDataUrl: attachments.pdfDataUrl,
+      pdfFileName: attachments.pdfFileName,
       extractedText:
-        extractedText.trim() ||
+        attachments.extractedText.trim() ||
         description.trim() ||
         `Läxa: ${title}. Ämne: ${subject}.`,
       reminderEnabled,
+      recurringWeekly,
     };
     upsertHomework(hw);
     if (reminderEnabled) {
       ensureHomeworkReminder(hw, reminderTime || "09:00");
       const cal = loadData().calendarEvents.find(
-        (e) => e.homeworkId === hw.id && e.type === "homework",
+        (e) => e.homeworkId === hw.id && e.type === "homework" && e.date === hw.dueDate,
       );
       if (cal) {
         upsertCalendarEvent({ ...cal, time: reminderTime || "09:00" });
@@ -121,8 +84,7 @@ export default function NyLaxaPage() {
           Ny läxa
         </h1>
         <p className="mt-1 text-muted">
-          Ladda upp foto eller PDF — Buddie hittar på förhörsfrågor utifrån
-          materialet.
+          Spara läxan nu — ladda upp foto/PDF direkt eller senare inför förhör.
         </p>
       </div>
 
@@ -153,7 +115,9 @@ export default function NyLaxaPage() {
             </select>
           </div>
           <div>
-            <label className="label">Datum</label>
+            <label className="label">
+              {recurringWeekly ? "Första datum" : "Datum"}
+            </label>
             <input
               type="date"
               className="input-field"
@@ -162,6 +126,21 @@ export default function NyLaxaPage() {
             />
           </div>
         </div>
+
+        <label className="flex items-center gap-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={recurringWeekly}
+            onChange={(e) => setRecurringWeekly(e.target.checked)}
+          />
+          Återkommer varje vecka
+        </label>
+        {recurringWeekly && (
+          <p className="text-xs text-muted">
+            Syns i kalendern varje vecka på samma veckodag. När du markerar
+            klar flyttas deadline till nästa vecka.
+          </p>
+        )}
 
         <div>
           <label className="label">Vad ska du göra?</label>
@@ -192,43 +171,17 @@ export default function NyLaxaPage() {
           />
         </div>
 
-        <div>
-          <label className="label">Foto eller PDF</label>
-          <input
-            type="file"
-            accept="image/*,application/pdf,.pdf"
-            capture="environment"
-            className="input-field"
-            disabled={busy}
-            onChange={(e) => void onAttachment(e.target.files?.[0] ?? null)}
-          />
-          {busy && (
-            <p className="mt-2 text-sm text-muted">Läser filen…</p>
-          )}
-          {photoDataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={photoDataUrl}
-              alt="Förhandsvisning"
-              className="mt-3 max-h-48 rounded-xl object-contain"
-            />
-          )}
-          {pdfDataUrl && (
-            <p className="mt-3 rounded-xl bg-sky-soft/50 px-3 py-2 text-sm text-ink-soft">
-              PDF vald: <strong>{pdfFileName || "dokument.pdf"}</strong>
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="label">Text från läxan</label>
-          <textarea
-            className="input-field min-h-28"
-            value={extractedText}
-            onChange={(e) => setExtractedText(e.target.value)}
-            placeholder="Fylls i automatiskt från PDF om möjligt…"
-          />
-        </div>
+        <HomeworkAttachments
+          value={attachments}
+          onChange={(next) =>
+            setAttachments({
+              photoDataUrl: next.photoDataUrl,
+              pdfDataUrl: next.pdfDataUrl,
+              pdfFileName: next.pdfFileName,
+              extractedText: next.extractedText,
+            })
+          }
+        />
 
         <div className="space-y-2 rounded-xl bg-white/60 px-3 py-3">
           <label className="flex items-center gap-2 text-sm text-ink-soft">
@@ -256,7 +209,7 @@ export default function NyLaxaPage() {
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
-        <button type="submit" className="btn-primary" disabled={busy}>
+        <button type="submit" className="btn-primary">
           Spara läxa
         </button>
       </form>

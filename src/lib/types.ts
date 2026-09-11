@@ -36,6 +36,8 @@ export interface Homework {
   pdfFileName?: string;
   extractedText: string;
   reminderEnabled: boolean;
+  /** Samma läxa varje vecka (samma veckodag) */
+  recurringWeekly?: boolean;
 }
 
 export interface Note {

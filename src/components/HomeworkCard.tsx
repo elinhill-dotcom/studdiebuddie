@@ -13,6 +13,9 @@ export function HomeworkCard({ hw }: { hw: Homework }) {
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
         <span className="tag">{hw.subject}</span>
         <span className="text-xs text-muted">{statusLabel(hw.status)}</span>
+        {hw.recurringWeekly && (
+          <span className="tag bg-sky-soft text-sky">Varje vecka</span>
+        )}
         {hw.reminderEnabled && (
           <span className="ml-auto text-xs font-semibold text-coral">
             {dueLabel(hw.dueDate)}

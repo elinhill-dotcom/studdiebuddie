@@ -12,6 +12,7 @@ import type {
   VocabList,
 } from "./types";
 import { DEFAULT_HOME_MODULES } from "./types";
+import { addDaysIso, weeklyOccurrenceDates } from "./helpers";
 
 const LEGACY_STORAGE_KEY = "studdiebuddie-v2";
 
@@ -168,31 +169,64 @@ export function upsertHomework(hw: Homework): AppData {
   return loadData();
 }
 
-/** Skapa/uppdatera fristående kalenderhändelse för läxans datum */
+/** Skapa/uppdatera kalenderhändelser för läxan (flera vid återkommande) */
 export function ensureHomeworkOnCalendar(
   hw: Homework,
   opts?: { time?: string },
 ): void {
   const data = loadData();
-  const existing = data.calendarEvents.find(
+  const old = data.calendarEvents.filter(
     (e) => e.homeworkId === hw.id && e.type === "homework",
   );
-  const event: CalendarEvent = {
-    id: existing?.id || crypto.randomUUID(),
-    title: hw.title,
-    type: "homework",
-    date: hw.dueDate,
-    subject: hw.subject,
-    homeworkId: hw.id,
-    notes: existing?.notes,
-    time: opts?.time ?? existing?.time,
-    createdAt: existing?.createdAt || new Date().toISOString(),
-  };
-  const eidx = data.calendarEvents.findIndex((e) => e.id === event.id);
-  if (eidx >= 0) data.calendarEvents[eidx] = event;
-  else data.calendarEvents.unshift(event);
+  const byDate = new Map(old.map((e) => [e.date, e]));
+  const dates = hw.recurringWeekly
+    ? weeklyOccurrenceDates(hw.dueDate, 12)
+    : [hw.dueDate];
+
+  const nextEvents: CalendarEvent[] = dates.map((date) => {
+    const existing = byDate.get(date);
+    return {
+      id: existing?.id || crypto.randomUUID(),
+      title: hw.recurringWeekly ? `${hw.title} (varje vecka)` : hw.title,
+      type: "homework" as const,
+      date,
+      subject: hw.subject,
+      homeworkId: hw.id,
+      notes: existing?.notes,
+      time: opts?.time ?? existing?.time,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+    };
+  });
+
+  const keepIds = new Set(nextEvents.map((e) => e.id));
+  const removed = old.filter((e) => !keepIds.has(e.id));
+
+  data.calendarEvents = [
+    ...nextEvents,
+    ...data.calendarEvents.filter(
+      (e) => !(e.homeworkId === hw.id && e.type === "homework"),
+    ),
+  ];
   saveData(data);
-  cloudSync?.onCalendarUpsert?.(event);
+  for (const ev of nextEvents) cloudSync?.onCalendarUpsert?.(ev);
+  for (const ev of removed) cloudSync?.onCalendarDelete?.(ev.id);
+}
+
+/** Markera återkommande läxa klar denna vecka → nästa veckas deadline */
+export function completeHomeworkOccurrence(hw: Homework): AppData {
+  if (!hw.recurringWeekly) {
+    return upsertHomework({ ...hw, status: "done" });
+  }
+  const next: Homework = {
+    ...hw,
+    status: "todo",
+    dueDate: addDaysIso(hw.dueDate, 7),
+  };
+  upsertHomework(next);
+  if (next.reminderEnabled) {
+    ensureHomeworkReminder(next);
+  }
+  return loadData();
 }
 
 /** Valfri påminnelse 1 h innan läxans deadline (skapar/uppdaterar en) */

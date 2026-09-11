@@ -33,6 +33,36 @@ export function dueLabel(dueDate: string) {
   return `Om ${d} dagar`;
 }
 
+/** YYYY-MM-DD + N dagar (lokal middag för att undvika DST-problem) */
+export function addDaysIso(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Nästa N veckodatum inklusive start (för återkommande läxor) */
+export function weeklyOccurrenceDates(startIso: string, count = 12): string[] {
+  return Array.from({ length: count }, (_, i) => addDaysIso(startIso, i * 7));
+}
+
+/** Har läxan material som Buddie kan använda till förhör? */
+export function hasQuizMaterial(hw: Homework) {
+  return Boolean(
+    hw.extractedText?.trim() ||
+      hw.description?.trim() ||
+      hw.photoDataUrl ||
+      hw.pdfDataUrl,
+  );
+}
+
+/** Har läxan uppladdad fil (foto/PDF)? */
+export function hasHomeworkFiles(hw: Homework) {
+  return Boolean(hw.photoDataUrl || hw.pdfDataUrl);
+}
+
 export function upcomingReminders(homeworks: Homework[]) {
   return homeworks
     .filter((h) => h.reminderEnabled && h.status !== "done")

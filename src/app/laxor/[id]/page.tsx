@@ -4,8 +4,16 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
+import { HomeworkAttachments } from "@/components/HomeworkAttachments";
 import { dueLabel, statusLabel } from "@/lib/helpers";
-import { deleteHomework, deleteReminder, ensureHomeworkReminder, loadData, upsertHomework } from "@/lib/store";
+import {
+  completeHomeworkOccurrence,
+  deleteHomework,
+  deleteReminder,
+  ensureHomeworkReminder,
+  loadData,
+  upsertHomework,
+} from "@/lib/store";
 import type { HomeworkStatus } from "@/lib/types";
 
 export default function LaxaDetailPage() {
@@ -33,6 +41,13 @@ export default function LaxaDetailPage() {
   }
 
   const updateStatus = (s: HomeworkStatus) => {
+    if (s === "done" && hw.recurringWeekly) {
+      completeHomeworkOccurrence(hw);
+      setStatus("todo");
+      notifyDataChanged();
+      refresh();
+      return;
+    }
     setStatus(s);
     upsertHomework({ ...hw, status: s });
     notifyDataChanged();
@@ -48,6 +63,30 @@ export default function LaxaDetailPage() {
       upsertHomework({ ...hw, reminderEnabled: true });
       ensureHomeworkReminder({ ...hw, reminderEnabled: true });
     }
+    notifyDataChanged();
+    refresh();
+  };
+
+  const toggleRecurring = () => {
+    upsertHomework({ ...hw, recurringWeekly: !hw.recurringWeekly });
+    notifyDataChanged();
+    refresh();
+  };
+
+  const saveAttachments = (patch: {
+    photoDataUrl?: string;
+    pdfDataUrl?: string;
+    pdfFileName?: string;
+    extractedText: string;
+  }) => {
+    upsertHomework({
+      ...hw,
+      ...patch,
+      extractedText:
+        patch.extractedText.trim() ||
+        hw.description.trim() ||
+        `Läxa: ${hw.title}. Ämne: ${hw.subject}.`,
+    });
     notifyDataChanged();
     refresh();
   };
@@ -69,6 +108,9 @@ export default function LaxaDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <span className="tag">{hw.subject}</span>
           <span className="text-xs text-muted">{statusLabel(status)}</span>
+          {hw.recurringWeekly && (
+            <span className="tag bg-sky-soft text-sky">Varje vecka</span>
+          )}
           {hw.reminderEnabled && (
             <span className="text-xs text-brass">{dueLabel(hw.dueDate)}</span>
           )}
@@ -78,6 +120,10 @@ export default function LaxaDetailPage() {
           {hw.title}
         </h1>
         <p className="text-ink-soft">{hw.description}</p>
+        <p className="text-sm text-muted">
+          Deadline: <span className="text-ink">{hw.dueDate}</span>
+          {hw.recurringWeekly ? " · återkommer varje vecka" : ""}
+        </p>
 
         {hw.helpNeeded && (
           <div className="rounded-xl bg-sage-soft/60 px-4 py-3">
@@ -92,34 +138,19 @@ export default function LaxaDetailPage() {
           </p>
         )}
 
-        {hw.photoDataUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={hw.photoDataUrl}
-            alt="Foto av läxa"
-            className="max-h-64 rounded-xl object-contain"
+        <div className="rounded-xl border border-[var(--line)] bg-white/50 p-4">
+          <h2 className="font-display mb-3 text-lg font-medium">Material</h2>
+          <HomeworkAttachments
+            value={{
+              photoDataUrl: hw.photoDataUrl,
+              pdfDataUrl: hw.pdfDataUrl,
+              pdfFileName: hw.pdfFileName,
+              extractedText: hw.extractedText,
+            }}
+            onChange={saveAttachments}
+            optionalHint={false}
           />
-        )}
-
-        {hw.pdfDataUrl && (
-          <a
-            href={hw.pdfDataUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-secondary inline-flex text-sm"
-          >
-            Öppna PDF{hw.pdfFileName ? `: ${hw.pdfFileName}` : ""}
-          </a>
-        )}
-
-        {hw.extractedText && (
-          <div>
-            <h2 className="font-display text-lg font-medium">Material</h2>
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-white/50 p-4 text-sm leading-relaxed text-ink-soft">
-              {hw.extractedText}
-            </pre>
-          </div>
-        )}
+        </div>
 
         <div className="flex flex-wrap gap-2">
           {(["todo", "doing", "done"] as HomeworkStatus[]).map((s) => (
@@ -133,19 +164,31 @@ export default function LaxaDetailPage() {
                   : "border border-[var(--line-strong)] text-muted"
               }`}
             >
-              {statusLabel(s)}
+              {s === "done" && hw.recurringWeekly
+                ? "Klar denna vecka"
+                : statusLabel(s)}
             </button>
           ))}
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-ink-soft">
-          <input
-            type="checkbox"
-            checked={hw.reminderEnabled}
-            onChange={toggleReminder}
-          />
-          Påminnelse 1 h innan deadline
-        </label>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={Boolean(hw.recurringWeekly)}
+              onChange={toggleRecurring}
+            />
+            Återkommer varje vecka
+          </label>
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={hw.reminderEnabled}
+              onChange={toggleReminder}
+            />
+            Påminnelse 1 h innan deadline
+          </label>
+        </div>
 
         <div className="flex flex-wrap gap-3 pt-1">
           <Link href={`/forhor/start?homework=${hw.id}`} className="btn-primary">

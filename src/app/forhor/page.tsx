@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useAppData } from "@/components/useAppData";
-import { SUBJECTS } from "@/lib/helpers";
+import { SUBJECTS, hasHomeworkFiles } from "@/lib/helpers";
 import type { Subject } from "@/lib/types";
 
 export default function ForhorLobbyPage() {
@@ -11,21 +11,15 @@ export default function ForhorLobbyPage() {
   const [subject, setSubject] = useState<Subject | "Alla">("Alla");
   const [selected, setSelected] = useState<string[]>([]);
 
-  const withMaterial = useMemo(() => {
+  const allHomework = useMemo(() => {
     if (!ready) return [];
-    return data.homeworks.filter(
-      (h) =>
-        h.extractedText.trim() ||
-        h.description.trim() ||
-        Boolean(h.photoDataUrl) ||
-        Boolean(h.pdfDataUrl),
-    );
+    return data.homeworks.filter((h) => h.status !== "done" || h.recurringWeekly);
   }, [data.homeworks, ready]);
 
   const filtered = useMemo(() => {
-    if (subject === "Alla") return withMaterial;
-    return withMaterial.filter((h) => h.subject === subject);
-  }, [withMaterial, subject]);
+    if (subject === "Alla") return allHomework;
+    return allHomework.filter((h) => h.subject === subject);
+  }, [allHomework, subject]);
 
   const recent = ready ? data.quizSessions.slice(0, 5) : [];
 
@@ -61,8 +55,8 @@ export default function ForhorLobbyPage() {
           Förhörsrummet
         </h1>
         <p className="mt-2 max-w-lg text-ink-soft">
-          Välj en eller flera sparade läxor — Buddie (OpenAI) ställer frågor
-          utifrån materialet. Du får tips, inte facit.
+          Välj en eller flera sparade läxor — Buddie ställer frågor utifrån
+          materialet. Saknar du fil? Du kan ladda upp den precis innan förhöret.
         </p>
       </div>
 
@@ -84,8 +78,8 @@ export default function ForhorLobbyPage() {
 
       <div className="panel border-[var(--line)] bg-sage-soft/40 px-5 py-4">
         <p className="text-sm leading-relaxed text-sage">
-          Tipset: filtrera på ämne, bocka i läxorna du vill träna, och starta ett
-          stort förhör.
+          Tipset: filtrera på ämne, bocka i läxorna du vill träna, och starta.
+          Fil kan laddas upp nu eller senare.
         </p>
       </div>
 
@@ -118,7 +112,7 @@ export default function ForhorLobbyPage() {
           </label>
         </div>
 
-        {withMaterial.length === 0 ? (
+        {allHomework.length === 0 ? (
           <div className="panel px-6 py-8 text-center">
             <p className="text-muted">Lägg in en läxa först — den sparas och syns här.</p>
             <Link href="/laxor/ny" className="btn-primary mt-3 inline-flex">
@@ -155,6 +149,7 @@ export default function ForhorLobbyPage() {
             <ul className="grid gap-3 sm:grid-cols-2">
               {filtered.map((hw) => {
                 const checked = selected.includes(hw.id);
+                const hasFile = hasHomeworkFiles(hw);
                 return (
                   <li key={hw.id}>
                     <label
@@ -169,12 +164,25 @@ export default function ForhorLobbyPage() {
                         onChange={() => toggle(hw.id)}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="tag">{hw.subject}</span>
+                        <span className="flex flex-wrap gap-1.5">
+                          <span className="tag">{hw.subject}</span>
+                          {hw.recurringWeekly && (
+                            <span className="tag bg-sky-soft text-sky">
+                              Varje vecka
+                            </span>
+                          )}
+                          {!hasFile && (
+                            <span className="tag bg-brass-soft/60 text-brass">
+                              Fil saknas
+                            </span>
+                          )}
+                        </span>
                         <span className="font-display mt-2 block text-lg font-medium">
                           {hw.title}
                         </span>
                         <span className="mt-1 block text-xs text-muted">
                           Klar senast {hw.dueDate}
+                          {!hasFile ? " · ladda upp vid start" : ""}
                         </span>
                       </span>
                     </label>
