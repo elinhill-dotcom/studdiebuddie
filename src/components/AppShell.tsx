@@ -19,7 +19,7 @@ const links = [
 
 function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, loading, syncing } = useAuth();
+  const { user, loading, syncing, signOut } = useAuth();
   const isAdmin = pathname.startsWith("/admin");
   const showAppNav = Boolean(user) && !isAdmin;
 
@@ -44,18 +44,32 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             </Link>
             <div className="flex items-center gap-2">
               {!isAdmin && (
-                <Link
-                  href="/konto"
-                  className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
-                >
-                  {loading
-                    ? "…"
-                    : user
-                      ? syncing
-                        ? "Synkar…"
-                        : "Konto"
-                      : "Logga in"}
-                </Link>
+                <>
+                  <Link
+                    href="/konto"
+                    className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
+                  >
+                    {loading
+                      ? "…"
+                      : user
+                        ? syncing
+                          ? "Synkar…"
+                          : "Konto"
+                        : "Logga in"}
+                  </Link>
+                  {user && (
+                    <button
+                      type="button"
+                      className="nav-pill bg-coral-soft/80 text-coral hover:bg-coral-soft"
+                      onClick={async () => {
+                        await signOut();
+                        window.location.href = "/";
+                      }}
+                    >
+                      Logga ut
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
