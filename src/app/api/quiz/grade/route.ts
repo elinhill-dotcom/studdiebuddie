@@ -20,6 +20,26 @@ type Body = {
   priorAnswers?: string[];
 };
 
+/** Kort fördjupning efter rätt svar (lokal fallback utan OpenAI) */
+function teachAfterCorrect(expected?: string, material?: string): string {
+  const core = (expected || "").trim().replace(/\s+/g, " ");
+  const snippet = core.slice(0, 180);
+  const fromMaterial = (material || "").trim().replace(/\s+/g, " ").slice(0, 120);
+
+  if (snippet.length > 20) {
+    return [
+      "Bra jobbat — du har det, med egna ord.",
+      `För att det ska sitta ännu bättre: ${snippet}${core.length > 180 ? "…" : ""}`,
+      fromMaterial
+        ? "Koppla gärna tillbaka till materialet när du pluggar vidare."
+        : "Tänk på varför det hänger ihop så — då blir det lättare att komma ihåg.",
+      "Då tar vi vidare.",
+    ].join(" ");
+  }
+
+  return "Bra jobbat — du har det viktiga. Kom ihåg att förklara med egna ord när du pluggar, då fastnar det bättre. Då tar vi vidare.";
+}
+
 function localTutorFallback(body: Body): TutorTurn {
   const attempt = Math.max(1, body.attemptCount ?? 1);
   return {
@@ -59,9 +79,9 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const attempt = Math.max(1, body.attemptCount ?? 1);
 
   if (graded.correct) {
+    const teach = teachAfterCorrect(body.expectedAnswer, body.material);
     return {
-      student_message:
-        "Bra — du har det viktiga, med egna ord. Då tar vi vidare.",
+      student_message: teach,
       evaluation: "correct",
       topic: "allmänt",
       next_action: "next_question",
