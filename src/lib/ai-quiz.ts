@@ -128,38 +128,146 @@ function softenPrompt(prompt: string): string {
 }
 
 /**
- * Enkel rättning för MVP.
- * Riktig AI kan jämföra semantiskt senare – utan att visa facit till eleven.
+ * Rättning för förhör — egna ord räcker, bokstavlig kopiering krävs inte.
+ * Delar upp expected i delar (listor/och/komma) och räknar träffar.
  */
 export function gradeAnswer(
   userAnswer: string,
   expected: string,
-): { correct: boolean; feedback: string } {
+): { correct: boolean; partial: boolean; feedback: string; hitRatio: number } {
   const a = normalize(userAnswer);
   const e = normalize(expected);
   if (a.length < 2) {
     return {
       correct: false,
+      partial: false,
+      hitRatio: 0,
       feedback: "Skriv gärna lite mer så vi kan se hur du tänker.",
     };
   }
 
-  const eWords = e.split(" ").filter((w) => w.length > 3);
+  const parts = splitExpectedParts(expected);
+  if (parts.length >= 2) {
+    const hitParts = parts.filter((p) => partCovered(a, p));
+    const hitRatio = hitParts.length / parts.length;
+    if (hitRatio >= 0.67) {
+      return {
+        correct: true,
+        partial: false,
+        hitRatio,
+        feedback: "Bra — du har med det viktiga, med egna ord.",
+      };
+    }
+    if (hitParts.length > 0) {
+      return {
+        correct: false,
+        partial: true,
+        hitRatio,
+        feedback: `Bra, du har ${hitParts.length} av ${parts.length} delar. Vad mer hör till?`,
+      };
+    }
+  }
+
+  const eWords = significantWords(e);
   const hits = eWords.filter((w) => a.includes(w)).length;
   const ratio = eWords.length ? hits / eWords.length : 0;
 
-  if (ratio >= 0.35 || a.includes(e.slice(0, 20)) || e.includes(a.slice(0, 20))) {
+  // Egna ord / omskrivning: lägre tröskel än bokstavlig match
+  if (ratio >= 0.28 || fuzzyContains(a, e) || fuzzyContains(e, a)) {
     return {
       correct: true,
-      feedback: "Nice! Du är inne på rätt spår.",
+      partial: false,
+      hitRatio: Math.max(ratio, 0.5),
+      feedback: "Nice! Du är inne på rätt spår — egna ord funkar fint.",
+    };
+  }
+
+  if (ratio >= 0.15) {
+    return {
+      correct: false,
+      partial: true,
+      hitRatio: ratio,
+      feedback:
+        "Du är inne på något rätt. Lägg till det som fortfarande saknas — med egna ord.",
     };
   }
 
   return {
     correct: false,
+    partial: false,
+    hitRatio: ratio,
     feedback:
-      "Inte riktigt ännu – men bra försök. Titta på tipset och prova igen.",
+      "Inte riktigt ännu – men bra försök. Titta på tipset och prova igen med egna ord.",
   };
+}
+
+function splitExpectedParts(expected: string): string[] {
+  const raw = expected
+    .split(/\n+|;\s*|\d+[.)]\s+|[-•*]\s+|,\s+(?=[A-ZÅÄÖ])|\s+och\s+/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 2);
+  if (raw.length >= 2) return raw;
+  // fallback: meningar
+  const sentences = expected
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 8);
+  return sentences.length >= 2 ? sentences : [];
+}
+
+function partCovered(answerNorm: string, part: string): boolean {
+  const p = normalize(part);
+  const words = significantWords(p);
+  if (!words.length) return answerNorm.includes(p.slice(0, 12));
+  const hits = words.filter((w) => answerNorm.includes(w)).length;
+  return hits / words.length >= 0.4 || answerNorm.includes(p.slice(0, 16));
+}
+
+function significantWords(s: string): string[] {
+  const stop = new Set([
+    "och",
+    "eller",
+    "att",
+    "det",
+    "den",
+    "som",
+    "for",
+    "för",
+    "med",
+    "till",
+    "fran",
+    "från",
+    "en",
+    "ett",
+    "ar",
+    "är",
+    "pa",
+    "på",
+    "av",
+    "om",
+    "man",
+    "kan",
+    "ska",
+    "the",
+    "and",
+    "or",
+    "to",
+    "of",
+    "a",
+    "an",
+    "is",
+    "in",
+    "on",
+  ]);
+  return s
+    .split(" ")
+    .filter((w) => w.length > 2 && !stop.has(w));
+}
+
+function fuzzyContains(hay: string, needle: string): boolean {
+  if (needle.length < 8) return hay.includes(needle);
+  const chunk = needle.slice(0, Math.min(24, needle.length));
+  return hay.includes(chunk);
 }
 
 function normalize(s: string) {

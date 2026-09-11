@@ -162,6 +162,7 @@ export async function tutorEvaluateAnswer(args: {
   question: string;
   expectedAnswer: string;
   userAnswer: string;
+  priorAnswers?: string[];
   tip?: string;
   material?: string;
   attemptCount?: number;
@@ -169,10 +170,18 @@ export async function tutorEvaluateAnswer(args: {
   subject?: string;
 }): Promise<TutorTurn | null> {
   const attemptCount = Math.max(1, args.attemptCount ?? 1);
+  const priorAnswers = (args.priorAnswers || [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const combinedAnswer = [...priorAnswers, args.userAnswer.trim()]
+    .filter(Boolean)
+    .join("\n");
   const payload = {
     question: args.question,
     expectedAnswer: args.expectedAnswer,
     userAnswer: args.userAnswer,
+    priorAnswers,
+    combinedAnswer,
     tip: args.tip || null,
     material: args.material || null,
     attemptCount,
@@ -185,7 +194,7 @@ export async function tutorEvaluateAnswer(args: {
     input: [
       {
         role: "user",
-        content: `Evaluate this student turn. Return JSON only.\n\n${JSON.stringify(payload)}`,
+        content: `Evaluate this student turn. Remember priorAnswers. Accept own words. Return JSON only.\n\n${JSON.stringify(payload)}`,
       },
     ],
     schemaName: "tutor_turn",

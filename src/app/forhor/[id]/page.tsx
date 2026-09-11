@@ -225,6 +225,9 @@ export default function ForhorSessionPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [booted, setBooted] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, number>>({});
+  const [priorByQuestion, setPriorByQuestion] = useState<
+    Record<string, string[]>
+  >({});
   const [practiceTips, setPracticeTips] = useState<string[]>([]);
   const [secondsLeft, setSecondsLeft] = useState(15 * 60);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -426,6 +429,7 @@ export default function ForhorSessionPage() {
     setMessages((m) => [...m, { id: mid(), role: "user", text }]);
     setAnswer("");
 
+    const prior = priorByQuestion[question.id] || [];
     const attemptCount = (attempts[question.id] || 0) + 1;
     setAttempts((a) => ({ ...a, [question.id]: attemptCount }));
 
@@ -438,6 +442,7 @@ export default function ForhorSessionPage() {
           prompt: question.prompt,
           expectedAnswer: question.expectedAnswer,
           userAnswer: text,
+          priorAnswers: prior,
           tip: question.tip,
           mode: session.mode,
           attemptCount,
@@ -462,40 +467,78 @@ export default function ForhorSessionPage() {
         const local =
           session.mode === "vocab"
             ? gradeVocabAnswer(text, question.expectedAnswer)
-            : gradeAnswer(text, question.expectedAnswer);
+            : gradeAnswer([...prior, text].join("\n"), question.expectedAnswer);
         result = {
           correct: local.correct,
           feedback: local.feedback,
-          next_action: local.correct ? "next_question" : "small_hint",
+          next_action: local.correct
+            ? "next_question"
+            : "partial" in local && local.partial
+              ? "clarify"
+              : "small_hint",
+          evaluation: local.correct
+            ? "correct"
+            : "partial" in local && local.partial
+              ? "partially_correct"
+              : "incorrect",
         };
       }
     } catch {
       const local =
         session.mode === "vocab"
           ? gradeVocabAnswer(text, question.expectedAnswer)
-          : gradeAnswer(text, question.expectedAnswer);
+          : gradeAnswer([...prior, text].join("\n"), question.expectedAnswer);
       result = {
         correct: local.correct,
         feedback: local.feedback,
-        next_action: local.correct ? "next_question" : "small_hint",
+        next_action: local.correct
+          ? "next_question"
+          : "partial" in local && local.partial
+            ? "clarify"
+            : "small_hint",
+        evaluation: local.correct
+          ? "correct"
+          : "partial" in local && local.partial
+            ? "partially_correct"
+            : "incorrect",
       };
     }
 
-    const nextAction = result.next_action || (result.correct ? "next_question" : "small_hint");
-    const tone: ChatMsg["tone"] = result.correct ? "ok" : "try";
+    const nextAction =
+      result.next_action ||
+      (result.correct || result.evaluation === "correct"
+        ? "next_question"
+        : result.evaluation === "partially_correct"
+          ? "clarify"
+          : "small_hint");
+    const isDoneEnough =
+      nextAction === "next_question" ||
+      result.correct ||
+      result.evaluation === "correct";
+    const tone: ChatMsg["tone"] = isDoneEnough
+      ? "ok"
+      : result.evaluation === "partially_correct" || nextAction === "clarify"
+        ? "try"
+        : "try";
     const tutorText = result.feedback || "Okej, berätta mer.";
 
     const current = loadData().quizSessions.find((q) => q.id === id) || session;
+    const nextPriors = [...prior, text];
 
-    // Gå vidare i samtalet när eleven fått greppet
-    if (nextAction === "next_question" || result.correct) {
+    // Gå vidare när innehållet räcker (egna ord OK)
+    if (isDoneEnough) {
+      setPriorByQuestion((p) => {
+        const copy = { ...p };
+        delete copy[question.id];
+        return copy;
+      });
       const updated: QuizSession = {
         ...current,
         answers: [
           ...current.answers,
           {
             questionId: question.id,
-            userAnswer: text,
+            userAnswer: nextPriors.join(" | "),
             correct: true,
             feedback: tutorText,
           },
@@ -507,16 +550,15 @@ export default function ForhorSessionPage() {
       return;
     }
 
-    // Fortsätt på samma tema — ingen "nästa"-knapp
+    // Kom ihåg vad eleven redan sagt — undvik loop
+    setPriorByQuestion((p) => ({ ...p, [question.id]: nextPriors }));
     setMessages((m) => [
       ...m,
       { id: mid(), role: "ai", text: tutorText, tone },
     ]);
 
-    // Spara försök (fel) först när vi går vidare, eller spara delvis?
-    // Spara senaste försök per fråga när vi lämnar — här sparar vi löpande fel bara efter 3+ eller om eleven går vidare manuellt.
+    // Efter många försök: spara som ej klar men låt dem fortsätta eller gå vidare
     if (attemptCount >= 3) {
-      // Efter flera försök: registrera och erbjud mjuk fortsättning i samma meddelande-känsla
       const already = current.answers.some((a) => a.questionId === question.id);
       if (!already) {
         persist({
@@ -525,7 +567,7 @@ export default function ForhorSessionPage() {
             ...current.answers,
             {
               questionId: question.id,
-              userAnswer: text,
+              userAnswer: nextPriors.join(" | "),
               correct: false,
               feedback: tutorText,
             },
@@ -556,6 +598,11 @@ export default function ForhorSessionPage() {
           ],
         };
     if (!already) persist(updated);
+    setPriorByQuestion((p) => {
+      const copy = { ...p };
+      delete copy[question.id];
+      return copy;
+    });
     const soft =
       chatLang === "en"
         ? "No stress — we'll leave that for now and keep talking."

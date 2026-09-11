@@ -14,26 +14,21 @@ type Body = {
   tip?: string;
   mode?: string;
   subject?: string;
-  /** How many genuine attempts on this question (1-based). Optional. */
   attemptCount?: number;
-  /** Optional uploaded material excerpt for grounding. */
   material?: string;
+  /** Tidigare elevsvar på samma fråga (för att undvika loop) */
+  priorAnswers?: string[];
 };
 
 function localTutorFallback(body: Body): TutorTurn {
-  // Keep behaviour aligned with rules when OpenAI is unavailable.
-  // Does not reveal expectedAnswer in student_message.
   const attempt = Math.max(1, body.attemptCount ?? 1);
-
-  // Dynamic import avoids pulling client-safe paths oddly; sync require via import at top is fine too.
-  // Use static imports instead below via already-available helpers.
   return {
     student_message:
       attempt <= 1
         ? "Bra försök — du är igång. Titta en gång till i materialet och försök fånga den viktigaste detaljen. Vad tror du är nyckeln?"
         : attempt === 2
-          ? "Nästan där. Dela upp det i två steg: vad vet du säkert, och vad saknas fortfarande? Börja med det du är säker på."
-          : "Okej, vi reder ut det kort utifrån materialet, utan att gissa. Läs tipset om du har ett, sammanfatta sedan med egna ord vad du förstod.",
+          ? "Nästan där. Vad saknas fortfarande jämfört med det du redan sagt?"
+          : "Okej, vi reder ut det kort. Sammanfatta med egna ord vad du förstår nu.",
     evaluation: "incorrect",
     topic: "allmänt",
     next_action:
@@ -44,29 +39,51 @@ function localTutorFallback(body: Body): TutorTurn {
 
 async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const { gradeAnswer, gradeVocabAnswer } = await import("@/lib/ai-quiz");
-  const graded =
-    body.mode === "vocab"
-      ? gradeVocabAnswer(body.userAnswer, body.expectedAnswer)
-      : gradeAnswer(body.userAnswer, body.expectedAnswer);
+  const combined = [...(body.priorAnswers || []), body.userAnswer]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join("\n");
 
+  if (body.mode === "vocab") {
+    const graded = gradeVocabAnswer(body.userAnswer, body.expectedAnswer);
+    return {
+      student_message: graded.feedback,
+      evaluation: graded.correct ? "correct" : "incorrect",
+      topic: "glosor",
+      next_action: graded.correct ? "next_question" : "small_hint",
+      confidence: graded.correct ? 0.8 : 0.5,
+    };
+  }
+
+  const graded = gradeAnswer(combined, body.expectedAnswer);
   const attempt = Math.max(1, body.attemptCount ?? 1);
 
   if (graded.correct) {
     return {
       student_message:
-        "Bra resonemang — det stämmer. Du använde materialet på ett tydligt sätt. Då tar vi vidare.",
+        "Bra — du har det viktiga, med egna ord. Då tar vi vidare.",
       evaluation: "correct",
       topic: "allmänt",
       next_action: "next_question",
-      confidence: 0.7,
+      confidence: 0.75,
+    };
+  }
+
+  if (graded.partial) {
+    return {
+      student_message: graded.feedback,
+      evaluation: "partially_correct",
+      topic: "allmänt",
+      next_action: "clarify",
+      confidence: 0.65,
     };
   }
 
   if (attempt <= 1) {
     return {
       student_message: body.tip
-        ? `Bra att du försöker. Liten ledtråd: ${body.tip} Vad kan du svara nu?`
-        : "Bra att du försöker. Titta tillbaka i materialet efter den viktigaste ledtråden — vad ser du där?",
+        ? `Bra att du försöker. Liten ledtråd: ${body.tip} Vad kan du svara nu — med egna ord?`
+        : "Bra att du försöker. Titta tillbaka i materialet — vad är det viktigaste, med egna ord?",
       evaluation: "incorrect",
       topic: "allmänt",
       next_action: "small_hint",
@@ -77,7 +94,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   if (attempt === 2) {
     return {
       student_message:
-        "Vi tar det i mindre steg. Vad är första delen du är säker på? Skriv bara den delen.",
+        "Vi tar det i mindre steg. Vad är den del du är säker på? Skriv bara den.",
       evaluation: "incorrect",
       topic: "allmänt",
       next_action: "strong_hint",
@@ -87,7 +104,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
 
   return {
     student_message:
-      "Efter flera försök: gå tillbaka till materialet och jämför din formulering med den viktiga delen där. Förklara sedan med egna ord vad du tror gäller — utan att kopiera rakt av.",
+      "Efter flera försök: förklara kort med egna ord vad du tror gäller utifrån materialet.",
     evaluation: "incorrect",
     topic: "allmänt",
     next_action: "explain",
@@ -97,6 +114,9 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
 
 export async function POST(req: Request) {
   const body = (await req.json()) as Body;
+  const priorAnswers = (body.priorAnswers || [])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
 
   if (!body.userAnswer?.trim()) {
     const turn: TutorTurn = {
@@ -125,6 +145,7 @@ export async function POST(req: Request) {
     question: body.prompt,
     expectedAnswer: body.expectedAnswer,
     userAnswer: body.userAnswer,
+    priorAnswers,
     tip: body.tip,
     material: body.material,
     attemptCount: body.attemptCount,
@@ -137,9 +158,11 @@ export async function POST(req: Request) {
   }
 
   try {
-    const local = await buildLocalTurn(body);
+    const local = await buildLocalTurn({ ...body, priorAnswers });
     return NextResponse.json(toLegacyGradePayload(local));
   } catch {
-    return NextResponse.json(toLegacyGradePayload(localTutorFallback(body)));
+    return NextResponse.json(
+      toLegacyGradePayload(localTutorFallback({ ...body, priorAnswers })),
+    );
   }
 }
