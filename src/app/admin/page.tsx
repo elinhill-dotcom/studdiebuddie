@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { SUBJECTS } from "@/lib/helpers";
+import { compressImageToDataUrl, readFileAsDataUrl } from "@/lib/pdf";
 import type { Subject } from "@/lib/types";
 
 type AdminUser = {
@@ -170,34 +171,36 @@ export default function AdminPage() {
   const onAttachment = async (file: File | null) => {
     if (!file) return;
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      if (file.size > 5_000_000) {
-        setMessage("PDF:en är för stor (max ca 5 MB).");
+      if (file.size > 12_000_000) {
+        setMessage("PDF:en är för stor (max ca 12 MB).");
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        setHwPdf(String(reader.result));
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        setHwPdf(dataUrl);
         setHwPdfName(file.name);
         setHwPhoto(undefined);
-      };
-      reader.readAsDataURL(file);
+      } catch {
+        setMessage("Kunde inte läsa PDF:en.");
+      }
       return;
     }
     if (!file.type.startsWith("image/")) {
       setMessage("Välj en bild eller PDF.");
       return;
     }
-    if (file.size > 2_500_000) {
-      setMessage("Bilden är för stor (max ca 2,5 MB).");
+    if (file.size > 25_000_000) {
+      setMessage("Bilden är ovanligt stor. Prova en annan bild.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setHwPhoto(String(reader.result));
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setHwPhoto(dataUrl);
       setHwPdf(undefined);
       setHwPdfName(undefined);
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setMessage("Kunde inte läsa bilden.");
+    }
   };
 
   const assignHomework = async (e: FormEvent) => {

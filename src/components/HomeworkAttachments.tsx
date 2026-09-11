@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { extractTextFromPdf, readFileAsDataUrl } from "@/lib/pdf";
+import { useRef, useState } from "react";
+import {
+  compressImageToDataUrl,
+  extractTextFromPdf,
+  readFileAsDataUrl,
+} from "@/lib/pdf";
 import type { Homework } from "@/lib/types";
 
-const MAX_IMAGE_BYTES = 2_500_000;
-const MAX_PDF_BYTES = 5_000_000;
+const MAX_PDF_BYTES = 12_000_000;
+/** Råfil innan komprimering — telefonkameror är ofta stora */
+const MAX_RAW_IMAGE_BYTES = 25_000_000;
 
 export type HomeworkAttachmentPatch = Pick<
   Homework,
@@ -24,39 +29,24 @@ export function HomeworkAttachments({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
 
-  const onAttachment = async (file: File | null) => {
+  const onImage = async (file: File | null) => {
     if (!file) return;
     setError("");
     setBusy(true);
     try {
-      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        if (file.size > MAX_PDF_BYTES) {
-          setError("PDF:en är för stor (max ca 5 MB).");
-          return;
-        }
-        const [dataUrl, text] = await Promise.all([
-          readFileAsDataUrl(file),
-          extractTextFromPdf(file).catch(() => ""),
-        ]);
-        onChange({
-          photoDataUrl: undefined,
-          pdfDataUrl: dataUrl,
-          pdfFileName: file.name,
-          extractedText: text.trim() || value.extractedText || "",
-        });
-        return;
-      }
-
       if (!file.type.startsWith("image/")) {
-        setError("Välj en bild eller PDF.");
+        setError("Välj en bild.");
         return;
       }
-      if (file.size > MAX_IMAGE_BYTES) {
-        setError("Bilden är för stor (max ca 2,5 MB).");
+      if (file.size > MAX_RAW_IMAGE_BYTES) {
+        setError("Bilden är ovanligt stor. Prova en annan bild.");
         return;
       }
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await compressImageToDataUrl(file);
       onChange({
         ...value,
         photoDataUrl: dataUrl,
@@ -64,7 +54,42 @@ export function HomeworkAttachments({
         pdfFileName: undefined,
       });
     } catch {
-      setError("Kunde inte läsa filen. Försök igen.");
+      setError("Kunde inte läsa bilden. Försök igen.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPdf = async (file: File | null) => {
+    if (!file) return;
+    setError("");
+    setBusy(true);
+    try {
+      if (
+        !(
+          file.type === "application/pdf" ||
+          file.name.toLowerCase().endsWith(".pdf")
+        )
+      ) {
+        setError("Välj en PDF-fil.");
+        return;
+      }
+      if (file.size > MAX_PDF_BYTES) {
+        setError("PDF:en är för stor (max ca 12 MB).");
+        return;
+      }
+      const [dataUrl, text] = await Promise.all([
+        readFileAsDataUrl(file),
+        extractTextFromPdf(file).catch(() => ""),
+      ]);
+      onChange({
+        photoDataUrl: undefined,
+        pdfDataUrl: dataUrl,
+        pdfFileName: file.name,
+        extractedText: text.trim() || value.extractedText || "",
+      });
+    } catch {
+      setError("Kunde inte läsa PDF:en. Försök igen.");
     } finally {
       setBusy(false);
     }
@@ -90,15 +115,74 @@ export function HomeworkAttachments({
             Valfritt nu — du kan ladda upp senare eller precis innan förhör.
           </p>
         )}
+
+        {/* Dolda inputs — kamera, galleri och PDF var för sig */}
         <input
+          ref={cameraRef}
           type="file"
-          accept="image/*,application/pdf,.pdf"
+          accept="image/*"
           capture="environment"
-          className="input-field"
+          className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+          tabIndex={-1}
           disabled={busy}
-          onChange={(e) => void onAttachment(e.target.files?.[0] ?? null)}
+          onChange={(e) => {
+            void onImage(e.target.files?.[0] ?? null);
+            e.target.value = "";
+          }}
         />
-        {busy && <p className="mt-2 text-sm text-muted">Läser filen…</p>}
+        <input
+          ref={libraryRef}
+          type="file"
+          accept="image/*"
+          className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+          tabIndex={-1}
+          disabled={busy}
+          onChange={(e) => {
+            void onImage(e.target.files?.[0] ?? null);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={pdfRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+          tabIndex={-1}
+          disabled={busy}
+          onChange={(e) => {
+            void onPdf(e.target.files?.[0] ?? null);
+            e.target.value = "";
+          }}
+        />
+
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            className="btn-secondary py-2 text-sm"
+            disabled={busy}
+            onClick={() => cameraRef.current?.click()}
+          >
+            Ta foto
+          </button>
+          <button
+            type="button"
+            className="btn-secondary py-2 text-sm"
+            disabled={busy}
+            onClick={() => libraryRef.current?.click()}
+          >
+            Bildbibliotek
+          </button>
+          <button
+            type="button"
+            className="btn-secondary py-2 text-sm"
+            disabled={busy}
+            onClick={() => pdfRef.current?.click()}
+          >
+            Välj PDF
+          </button>
+        </div>
+
+        {busy && <p className="mt-2 text-sm text-muted">Bearbetar filen…</p>}
         {error && <p className="mt-2 text-sm text-danger">{error}</p>}
       </div>
 

@@ -31,3 +31,42 @@ export function readFileAsDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Krymper stora telefonbilder så de får plats (JPEG).
+ * Telefonkameror tar ofta 5–12 MB — vi siktar på under ~1,5 MB.
+ */
+export async function compressImageToDataUrl(
+  file: File,
+  opts?: { maxEdge?: number; quality?: number; maxBytes?: number },
+): Promise<string> {
+  const maxEdge = opts?.maxEdge ?? 1600;
+  const quality = opts?.quality ?? 0.78;
+  const maxBytes = opts?.maxBytes ?? 1_800_000;
+
+  const bitmap = await createImageBitmap(file);
+  try {
+    let { width, height } = bitmap;
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Kunde inte rita bilden");
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    let q = quality;
+    let dataUrl = canvas.toDataURL("image/jpeg", q);
+    // Sänk kvalitet om data-URL fortfarande är för stor
+    while (dataUrl.length * 0.75 > maxBytes && q > 0.45) {
+      q -= 0.08;
+      dataUrl = canvas.toDataURL("image/jpeg", q);
+    }
+    return dataUrl;
+  } finally {
+    bitmap.close();
+  }
+}
