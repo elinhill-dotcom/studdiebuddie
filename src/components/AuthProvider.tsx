@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { notifyDataChanged } from "@/components/useAppData";
-import { loadData, registerCloudSync, saveData } from "@/lib/store";
+import { loadData, registerCloudSync, saveData, setActiveUserId, clearGuestView } from "@/lib/store";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import {
   deleteCalendarEventFromCloud,
@@ -83,25 +83,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const hydrateFromCloud = useCallback(async (u: User) => {
     setSyncing(true);
     try {
+      // Byt till användarens egen cache — aldrig blanda med andra konton
+      setActiveUserId(u.id);
+
       const cloud = await loadCloudAppData(u);
       if (!cloud) return;
 
       const local = loadData();
       const displayName = resolveDisplayName(u, cloud.profileName);
 
-      if (cloudLooksEmpty(cloud) && hasContent(local)) {
+      // Synka upp lokal data BARRA om den redan tillhör samma användare
+      const localBelongsToUser =
+        local.ownerUserId === u.id && hasContent(local);
+
+      if (cloudLooksEmpty(cloud) && localBelongsToUser) {
         local.profileName = resolveDisplayName(u, local.profileName);
+        local.ownerUserId = u.id;
         saveData(local);
         await pushLocalDataToCloud(local, u);
         notifyDataChanged();
         return;
       }
 
+      // Molnet är sanningen för inloggad användare
       cloud.profileName = displayName;
+      cloud.ownerUserId = u.id;
       saveData(cloud);
       notifyDataChanged();
 
-      // Se till att profilnamnet ligger rätt i molnet (inte kvar som "Buddie")
       if (displayName && displayName !== "Buddie") {
         await syncProfileToCloud(
           u,
@@ -148,6 +157,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       if (event === "SIGNED_OUT") {
         registerCloudSync(null);
+        clearGuestView();
+        notifyDataChanged();
       }
     });
 
@@ -165,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     registerCloudSync({
       onHomeworkUpsert: (hw) => void syncHomeworkToCloud(hw, user),
-      onHomeworkDelete: (id) => void deleteHomeworkFromCloud(id),
+      onHomeworkDelete: (id) => void deleteHomeworkFromCloud(id, user.id),
       onNoteUpsert: (n) => void syncNoteToCloud(n, user),
       onNoteDelete: (id) => void deleteNoteFromCloud(id),
       onCalendarUpsert: (e) => void syncCalendarEventToCloud(e, user),
@@ -211,8 +222,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) return;
+    registerCloudSync(null);
     await supabase.auth.signOut();
     setUser(null);
+    clearGuestView();
+    notifyDataChanged();
   }, []);
 
   const refreshFromCloud = useCallback(async () => {

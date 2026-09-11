@@ -134,6 +134,8 @@ export interface Reminder {
 }
 
 export interface AppData {
+  /** Ägare — används så data aldrig blandas mellan konton */
+  ownerUserId?: string | null;
   homeworks: Homework[];
   notes: Note[];
   quizSessions: QuizSession[];

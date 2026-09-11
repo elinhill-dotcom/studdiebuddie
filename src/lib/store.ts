@@ -13,7 +13,24 @@ import type {
 } from "./types";
 import { DEFAULT_HOME_MODULES } from "./types";
 
-const STORAGE_KEY = "studdiebuddie-v2";
+const LEGACY_STORAGE_KEY = "studdiebuddie-v2";
+
+/** Inloggad användares id — styr vilken localStorage-nyckel som används */
+let activeUserId: string | null = null;
+
+export function setActiveUserId(userId: string | null) {
+  activeUserId = userId;
+}
+
+export function getActiveUserId() {
+  return activeUserId;
+}
+
+function storageKey() {
+  return activeUserId
+    ? `studdiebuddie-v2:user:${activeUserId}`
+    : "studdiebuddie-v2:guest";
+}
 
 export type CloudSyncHandlers = {
   onHomeworkUpsert?: (hw: Homework) => void;
@@ -42,6 +59,7 @@ export function registerCloudSync(handlers: CloudSyncHandlers | null) {
 }
 
 export const emptyData = (): AppData => ({
+  ownerUserId: activeUserId,
   homeworks: [],
   notes: [],
   quizSessions: [],
@@ -57,25 +75,29 @@ export const emptyData = (): AppData => ({
 export function loadData(): AppData {
   if (typeof window === "undefined") return emptyData();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) {
-      // migrera v1 om den finns
-      const v1 = localStorage.getItem("studdiebuddie-v1");
-      if (v1) {
-        const parsed = JSON.parse(v1);
-        const merged: AppData = {
-          ...emptyData(),
-          ...parsed,
-          calendarEvents: parsed.calendarEvents || [],
-          reminders: parsed.reminders || [],
-          vocabLists: parsed.vocabLists || [],
-          notificationsEnabled: parsed.notificationsEnabled || false,
-          homeModules: parsed.homeModules?.length
-            ? parsed.homeModules
-            : [...DEFAULT_HOME_MODULES],
-        };
-        saveData(merged);
-        return merged;
+      // engångsmigrering av gammal gemensam nyckel → endast till aktuell användare
+      if (activeUserId) {
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+          const parsed = JSON.parse(legacy);
+          const merged: AppData = {
+            ...emptyData(),
+            ...parsed,
+            ownerUserId: activeUserId,
+            calendarEvents: parsed.calendarEvents || [],
+            reminders: parsed.reminders || [],
+            vocabLists: parsed.vocabLists || [],
+            notificationsEnabled: parsed.notificationsEnabled || false,
+            homeModules: parsed.homeModules?.length
+              ? parsed.homeModules
+              : [...DEFAULT_HOME_MODULES],
+          };
+          saveData(merged);
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+          return merged;
+        }
       }
       return emptyData();
     }
@@ -83,6 +105,7 @@ export function loadData(): AppData {
     return {
       ...emptyData(),
       ...parsed,
+      ownerUserId: activeUserId ?? parsed.ownerUserId ?? null,
       vocabLists: parsed.vocabLists || [],
       homeModules: parsed.homeModules?.length
         ? parsed.homeModules
@@ -91,6 +114,13 @@ export function loadData(): AppData {
   } catch {
     return emptyData();
   }
+}
+
+/** Rensa synlig gästvy efter utloggning (användardata ligger kvar under user-nyckeln) */
+export function clearGuestView() {
+  activeUserId = null;
+  if (typeof window === "undefined") return;
+  localStorage.setItem(storageKey(), JSON.stringify(emptyData()));
 }
 
 export function setHomeModules(modules: HomeModuleId[]): AppData {
@@ -119,7 +149,11 @@ export function setProfileName(name: string): AppData {
 
 export function saveData(data: AppData): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const payload: AppData = {
+    ...data,
+    ownerUserId: activeUserId ?? data.ownerUserId ?? null,
+  };
+  localStorage.setItem(storageKey(), JSON.stringify(payload));
 }
 
 export function upsertHomework(hw: Homework): AppData {

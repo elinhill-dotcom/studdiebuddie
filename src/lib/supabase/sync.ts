@@ -104,10 +104,12 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
   if (error) console.error("sync homework", error.message);
 }
 
-export async function deleteHomeworkFromCloud(id: string) {
+export async function deleteHomeworkFromCloud(id: string, userId?: string) {
   const supabase = createClient();
   if (!supabase) return;
-  await supabase.from("homeworks").delete().eq("id", id);
+  let q = supabase.from("homeworks").delete().eq("id", id);
+  if (userId) q = q.eq("user_id", userId);
+  await q;
 }
 
 export async function syncNoteToCloud(note: Note, user: User) {
@@ -348,6 +350,7 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
   const profile = profileRes.data;
 
   return {
+    ownerUserId: user.id,
     homeworks,
     notes: (notesRes.data || []).map(
       (n): Note => ({
