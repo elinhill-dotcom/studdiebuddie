@@ -319,6 +319,118 @@ async function resolvePdfDataUrl(url?: string): Promise<string | null> {
   }
 }
 
+const vocabExtractSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pairs", "languageFrom", "languageTo"],
+  properties: {
+    languageFrom: { type: "string" },
+    languageTo: { type: "string" },
+    pairs: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["term", "translation"],
+        properties: {
+          term: { type: "string" },
+          translation: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
+/** Läser glosor från bild/PDF (eller råtext) via OpenAI */
+export async function extractVocabFromUpload(args: {
+  photoDataUrl?: string;
+  pdfDataUrl?: string;
+  pdfFileName?: string;
+  extractedText?: string;
+  languageFromHint?: string;
+  languageToHint?: string;
+}): Promise<{
+  pairs: { term: string; translation: string }[];
+  languageFrom?: string;
+  languageTo?: string;
+} | null> {
+  const content: OpenAI.Responses.ResponseInputContent[] = [
+    {
+      type: "input_text",
+      text: [
+        "Extract every vocabulary pair from this gloss list / word list.",
+        "Return JSON only: languageFrom, languageTo, pairs[{term, translation}].",
+        "term = left/source language word, translation = right/target language.",
+        "Skip headers, page numbers, and empty rows. Keep original spelling.",
+        args.languageFromHint
+          ? `Hint languageFrom: ${args.languageFromHint}`
+          : "",
+        args.languageToHint ? `Hint languageTo: ${args.languageToHint}` : "",
+        args.extractedText?.trim()
+          ? `Text extracted from PDF:\n${args.extractedText.trim().slice(0, 12000)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    },
+  ];
+
+  if (args.photoDataUrl?.startsWith("data:image") || args.photoDataUrl?.startsWith("http")) {
+    content.push({
+      type: "input_image",
+      image_url: args.photoDataUrl,
+      detail: "high",
+    });
+  }
+
+  const pdfPayload = await resolvePdfDataUrl(args.pdfDataUrl);
+  if (pdfPayload && pdfPayload.length < 8_000_000) {
+    content.push({
+      type: "input_file",
+      filename: args.pdfFileName || "glosor.pdf",
+      file_data: pdfPayload,
+    } as OpenAI.Responses.ResponseInputContent);
+  }
+
+  if (
+    content.length === 1 &&
+    !args.extractedText?.trim()
+  ) {
+    return null;
+  }
+
+  const raw = await createStructuredResponse({
+    instructions:
+      "You extract bilingual vocabulary lists for school students aged 11–15. Be thorough and accurate. Do not invent words that are not visible.",
+    input: [{ role: "user", content }],
+    schemaName: "vocab_pairs",
+    schema: vocabExtractSchema as unknown as Record<string, unknown>,
+  });
+
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      pairs?: { term?: string; translation?: string }[];
+      languageFrom?: string;
+      languageTo?: string;
+    };
+    const pairs = (parsed.pairs || [])
+      .map((p) => ({
+        term: String(p.term || "").trim(),
+        translation: String(p.translation || "").trim(),
+      }))
+      .filter((p) => p.term && p.translation);
+    if (!pairs.length) return null;
+    return {
+      pairs,
+      languageFrom: parsed.languageFrom?.trim() || undefined,
+      languageTo: parsed.languageTo?.trim() || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Map internal tutor turn → legacy UI fields (feedback/correct) without changing the UI. */
 export function toLegacyGradePayload(turn: TutorTurn) {
   return {

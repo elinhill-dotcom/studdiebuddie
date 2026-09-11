@@ -331,10 +331,15 @@ function levenshtein(a: string, b: string) {
 export function generateVocabQuestions(
   list: VocabList,
   count?: number,
+  selectedPairIds?: string[],
 ): QuizQuestion[] {
-  const pairs = [...list.pairs].filter(
+  let pairs = [...list.pairs].filter(
     (p) => p.term.trim() && p.translation.trim(),
   );
+  if (selectedPairIds?.length) {
+    const allow = new Set(selectedPairIds);
+    pairs = pairs.filter((p) => allow.has(p.id));
+  }
   for (let i = pairs.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pairs[i], pairs[j]] = [pairs[j], pairs[i]];

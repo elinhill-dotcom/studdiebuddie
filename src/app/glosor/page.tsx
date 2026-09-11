@@ -53,8 +53,8 @@ export default function GlosorPage() {
             Glosor
           </h1>
           <p className="mt-1 max-w-lg text-ink-soft">
-            Skapa gloslistor och kör förhör — appen frågar, du svarar. Facit visas
-            aldrig under förhöret.
+            Skapa gloslistor, ladda upp foto/PDF av listan, bocka i vilka ord du
+            vill öva — och kör förhör.
           </p>
         </div>
         <button
@@ -105,7 +105,8 @@ export default function GlosorPage() {
               placeholder={"apple - äpple\nbeautiful - vacker\nfriend; vän"}
             />
             <p className="mt-1 text-xs text-muted">
-              En rad per glosa: ord - översättning
+              En rad per glosa: ord - översättning. Du kan också ladda upp foto
+              eller PDF inne i listan efteråt.
             </p>
           </div>
           <button type="submit" className="btn-primary">
