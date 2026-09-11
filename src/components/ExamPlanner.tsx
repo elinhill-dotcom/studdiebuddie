@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { CalendarEvent, Homework, Reminder, Subject } from "@/lib/types";
-import { SUBJECTS } from "@/lib/helpers";
+import { SUBJECTS, hasQuizMaterial } from "@/lib/helpers";
 import {
   setNotificationsEnabled,
   upsertCalendarEvent,
@@ -65,13 +65,7 @@ export function ExamPlanner({
   const subjectHomeworks = useMemo(
     () =>
       homeworks.filter(
-        (h) =>
-          h.subject === subject &&
-          h.status !== "done" &&
-          (h.extractedText.trim() ||
-            h.description.trim() ||
-            h.photoDataUrl ||
-            h.pdfDataUrl),
+        (h) => h.subject === subject && h.status !== "done" && hasQuizMaterial(h),
       ),
     [homeworks, subject],
   );

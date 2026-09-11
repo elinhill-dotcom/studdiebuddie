@@ -4,10 +4,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { inventQuestionsFromHomework } from "@/lib/invent-questions";
 import { hasHomeworkFiles, hasQuizMaterial } from "@/lib/helpers";
+import { withMirroredAttachmentFields } from "@/lib/attachments";
 import { loadData, upsertHomework, upsertQuiz } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
-import { HomeworkAttachments } from "@/components/HomeworkAttachments";
-import type { Homework, QuizQuestion, QuizSession } from "@/lib/types";
+import {
+  HomeworkAttachments,
+  attachmentValueFromHomework,
+} from "@/components/HomeworkAttachments";
+import type {
+  Homework,
+  HomeworkAttachment,
+  QuizQuestion,
+  QuizSession,
+} from "@/lib/types";
 import Link from "next/link";
 
 async function generateForHomework(
@@ -46,12 +55,10 @@ function StartInner() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("Förbereder…");
   const [needsUpload, setNeedsUpload] = useState<Homework | null>(null);
-  const [uploadPatch, setUploadPatch] = useState({
-    photoDataUrl: undefined as string | undefined,
-    pdfDataUrl: undefined as string | undefined,
-    pdfFileName: undefined as string | undefined,
-    extractedText: "",
-  });
+  const [uploadPatch, setUploadPatch] = useState<{
+    attachments: HomeworkAttachment[];
+    extractedText: string;
+  }>({ attachments: [], extractedText: "" });
   const [pendingIds, setPendingIds] = useState<string[] | null>(null);
   const skippedUpload = useRef(new Set<string>());
   const started = useRef(false);
@@ -79,12 +86,7 @@ function StartInner() {
       if (missing) {
         setPendingIds(ids);
         setNeedsUpload(missing);
-        setUploadPatch({
-          photoDataUrl: missing.photoDataUrl,
-          pdfDataUrl: missing.pdfDataUrl,
-          pdfFileName: missing.pdfFileName,
-          extractedText: missing.extractedText || "",
-        });
+        setUploadPatch(attachmentValueFromHomework(missing));
         return;
       }
 
@@ -169,21 +171,20 @@ function StartInner() {
 
   const saveUploadAndContinue = () => {
     if (!needsUpload || !pendingIds) return;
-    if (!uploadPatch.photoDataUrl && !uploadPatch.pdfDataUrl && !uploadPatch.extractedText.trim()) {
-      setError("Ladda upp en fil eller skriv in text innan du fortsätter.");
+    if (
+      uploadPatch.attachments.length === 0 &&
+      !uploadPatch.extractedText.trim()
+    ) {
+      setError("Ladda upp minst en fil eller skriv in text innan du fortsätter.");
       return;
     }
-    const text =
-      uploadPatch.extractedText.trim() ||
-      needsUpload.description.trim() ||
-      `Läxa: ${needsUpload.title}. Ämne: ${needsUpload.subject}.`;
-    upsertHomework({
-      ...needsUpload,
-      photoDataUrl: uploadPatch.photoDataUrl,
-      pdfDataUrl: uploadPatch.pdfDataUrl,
-      pdfFileName: uploadPatch.pdfFileName,
-      extractedText: text,
-    });
+    upsertHomework(
+      withMirroredAttachmentFields({
+        ...needsUpload,
+        attachments: uploadPatch.attachments,
+        extractedText: uploadPatch.extractedText,
+      }),
+    );
     notifyDataChanged();
     skippedUpload.current.add(needsUpload.id);
     void runQuiz(pendingIds);
@@ -208,14 +209,7 @@ function StartInner() {
           </p>
           <HomeworkAttachments
             value={uploadPatch}
-            onChange={(next) =>
-              setUploadPatch({
-                photoDataUrl: next.photoDataUrl,
-                pdfDataUrl: next.pdfDataUrl,
-                pdfFileName: next.pdfFileName,
-                extractedText: next.extractedText,
-              })
-            }
+            onChange={setUploadPatch}
             optionalHint={false}
           />
           {error && <p className="text-sm text-danger">{error}</p>}

@@ -48,20 +48,10 @@ export function weeklyOccurrenceDates(startIso: string, count = 12): string[] {
   return Array.from({ length: count }, (_, i) => addDaysIso(startIso, i * 7));
 }
 
-/** Har läxan material som Buddie kan använda till förhör? */
-export function hasQuizMaterial(hw: Homework) {
-  return Boolean(
-    hw.extractedText?.trim() ||
-      hw.description?.trim() ||
-      hw.photoDataUrl ||
-      hw.pdfDataUrl,
-  );
-}
-
-/** Har läxan uppladdad fil (foto/PDF)? */
-export function hasHomeworkFiles(hw: Homework) {
-  return Boolean(hw.photoDataUrl || hw.pdfDataUrl);
-}
+export {
+  hasHomeworkFiles,
+  hasQuizMaterial,
+} from "./attachments";
 
 export function upcomingReminders(homeworks: Homework[]) {
   return homeworks

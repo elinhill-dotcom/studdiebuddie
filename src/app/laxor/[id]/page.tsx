@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
-import { HomeworkAttachments } from "@/components/HomeworkAttachments";
+import { HomeworkAttachments, attachmentValueFromHomework } from "@/components/HomeworkAttachments";
 import { dueLabel, statusLabel } from "@/lib/helpers";
+import { withMirroredAttachmentFields } from "@/lib/attachments";
 import {
   completeHomeworkOccurrence,
   deleteHomework,
@@ -14,7 +15,7 @@ import {
   loadData,
   upsertHomework,
 } from "@/lib/store";
-import type { HomeworkStatus } from "@/lib/types";
+import type { HomeworkAttachment, HomeworkStatus } from "@/lib/types";
 
 export default function LaxaDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -74,19 +75,16 @@ export default function LaxaDetailPage() {
   };
 
   const saveAttachments = (patch: {
-    photoDataUrl?: string;
-    pdfDataUrl?: string;
-    pdfFileName?: string;
+    attachments: HomeworkAttachment[];
     extractedText: string;
   }) => {
-    upsertHomework({
-      ...hw,
-      ...patch,
-      extractedText:
-        patch.extractedText.trim() ||
-        hw.description.trim() ||
-        `Läxa: ${hw.title}. Ämne: ${hw.subject}.`,
-    });
+    upsertHomework(
+      withMirroredAttachmentFields({
+        ...hw,
+        attachments: patch.attachments,
+        extractedText: patch.extractedText,
+      }),
+    );
     notifyDataChanged();
     refresh();
   };
@@ -141,12 +139,7 @@ export default function LaxaDetailPage() {
         <div className="rounded-xl border border-[var(--line)] bg-white/50 p-4">
           <h2 className="font-display mb-3 text-lg font-medium">Material</h2>
           <HomeworkAttachments
-            value={{
-              photoDataUrl: hw.photoDataUrl,
-              pdfDataUrl: hw.pdfDataUrl,
-              pdfFileName: hw.pdfFileName,
-              extractedText: hw.extractedText,
-            }}
+            value={attachmentValueFromHomework(hw)}
             onChange={saveAttachments}
             optionalHint={false}
           />

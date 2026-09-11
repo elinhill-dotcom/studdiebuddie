@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import type { Homework, QuizQuestion } from "@/lib/types";
+import {
+  combinedAttachmentText,
+  hasQuizMaterial,
+  normalizeAttachments,
+} from "@/lib/attachments";
 import { inventQuestionsFromHomework } from "@/lib/invent-questions";
 import { generateQuestionsFromHomework } from "@/lib/ai-quiz";
 import { tutorGenerateQuestions } from "@/lib/tutor/openai";
@@ -38,6 +43,10 @@ function materialBlock(hw: Homework) {
         : hw.subject === "Tyska"
           ? "tyska (skriv frågor och tips på tyska)"
           : "svenska";
+  const material =
+    combinedAttachmentText(hw) ||
+    hw.extractedText ||
+    "(ingen text – använd bilderna/PDF:erna om de finns)";
   return [
     `Titel: ${hw.title}`,
     `Ämne: ${hw.subject}`,
@@ -45,7 +54,7 @@ function materialBlock(hw: Homework) {
     hw.description && `Beskrivning: ${hw.description}`,
     hw.helpNeeded && `Eleven behöver extra hjälp med: ${hw.helpNeeded}`,
     hw.pageHints && `Sidhänvisning i häftet: ${hw.pageHints}`,
-    `Material från läxan:\n${hw.extractedText || "(ingen text – använd bilden/PDF om den finns)"}`,
+    `Material från läxan:\n${material}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -61,18 +70,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Saknar läxa" }, { status: 400 });
     }
 
-    const hasMaterial =
-      Boolean(hw.extractedText?.trim()) ||
-      Boolean(hw.description?.trim()) ||
-      Boolean(hw.photoDataUrl) ||
-      Boolean(hw.pdfDataUrl);
-
-    if (!hasMaterial) {
+    if (!hasQuizMaterial(hw)) {
       return NextResponse.json(
         { error: "Läxan saknar text, foto eller PDF att göra frågor utifrån." },
         { status: 400 },
       );
     }
+
+    const attachments = normalizeAttachments(hw).map((a) => ({
+      kind: a.kind,
+      dataUrl: a.dataUrl,
+      fileName: a.fileName,
+    }));
 
     const ai = await tutorGenerateQuestions({
       materialText: materialBlock(hw),
@@ -80,6 +89,7 @@ export async function POST(req: Request) {
       photoDataUrl: hw.photoDataUrl,
       pdfDataUrl: hw.pdfDataUrl,
       pdfFileName: hw.pdfFileName,
+      attachments,
     });
 
     if (ai?.questions?.length) {
@@ -99,9 +109,6 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     console.error(e);
-    return NextResponse.json(
-      { error: "Kunde inte skapa frågor" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Kunde inte skapa frågor" }, { status: 500 });
   }
 }

@@ -59,6 +59,7 @@ create table if not exists public.homeworks (
   extracted_text text not null default '',
   reminder_enabled boolean not null default true,
   recurring_weekly boolean not null default false,
+  attachments jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 

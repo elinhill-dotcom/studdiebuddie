@@ -158,14 +158,59 @@ export function saveData(data: AppData): void {
 }
 
 export function upsertHomework(hw: Homework): AppData {
+  // Synka full version (inkl. stora PDF:er) till molnet först
+  cloudSync?.onHomeworkUpsert?.(hw);
+
+  // localStorage: behåll text + mindre filer; strippa jätte-PDF base64
+  const MAX_LOCAL = 4_500_000;
+  const localHw: Homework = {
+    ...hw,
+    attachments: hw.attachments?.map((a) => {
+      if (
+        a.kind === "pdf" &&
+        a.dataUrl?.startsWith("data:") &&
+        a.dataUrl.length > MAX_LOCAL
+      ) {
+        return {
+          ...a,
+          dataUrl: "",
+          extractedText: a.extractedText,
+        };
+      }
+      return a;
+    }),
+  };
+  if (
+    localHw.pdfDataUrl?.startsWith("data:") &&
+    localHw.pdfDataUrl.length > MAX_LOCAL
+  ) {
+    localHw.pdfDataUrl = undefined;
+  }
+
   const data = loadData();
   const idx = data.homeworks.findIndex((h) => h.id === hw.id);
-  if (idx >= 0) data.homeworks[idx] = hw;
-  else data.homeworks.unshift(hw);
-  saveData(data);
-  cloudSync?.onHomeworkUpsert?.(hw);
-  // Spegla läxans deadline i kalendern som egen händelse
-  ensureHomeworkOnCalendar(hw);
+  if (idx >= 0) data.homeworks[idx] = localHw;
+  else data.homeworks.unshift(localHw);
+  try {
+    saveData(data);
+  } catch (e) {
+    console.error("localStorage full — sparar utan stora bilagor", e);
+    const slim: Homework = {
+      ...localHw,
+      attachments: localHw.attachments?.map((a) => ({
+        ...a,
+        dataUrl: a.kind === "image" && a.dataUrl.length > 800_000 ? "" : a.dataUrl,
+      })),
+      photoDataUrl: undefined,
+      pdfDataUrl: undefined,
+    };
+    const d2 = loadData();
+    const i2 = d2.homeworks.findIndex((h) => h.id === hw.id);
+    if (i2 >= 0) d2.homeworks[i2] = slim;
+    else d2.homeworks.unshift(slim);
+    saveData(d2);
+  }
+  ensureHomeworkOnCalendar(localHw);
   return loadData();
 }
 

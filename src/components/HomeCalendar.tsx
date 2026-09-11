@@ -5,10 +5,12 @@ import type {
   CalendarEvent,
   CalendarEventType,
   Homework,
+  HomeworkAttachment,
   Reminder,
   Subject,
 } from "@/lib/types";
 import { SUBJECTS } from "@/lib/helpers";
+import { withMirroredAttachmentFields } from "@/lib/attachments";
 import {
   deleteCalendarEvent,
   ensureHomeworkReminder,
@@ -100,9 +102,7 @@ export function HomeCalendar({
   const [description, setDescription] = useState("");
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [attachments, setAttachments] = useState({
-    photoDataUrl: undefined as string | undefined,
-    pdfDataUrl: undefined as string | undefined,
-    pdfFileName: undefined as string | undefined,
+    attachments: [] as HomeworkAttachment[],
     extractedText: "",
   });
 
@@ -179,9 +179,7 @@ export function HomeCalendar({
     setHomeworkMode("new");
     setRecurringWeekly(false);
     setAttachments({
-      photoDataUrl: undefined,
-      pdfDataUrl: undefined,
-      pdfFileName: undefined,
+      attachments: [],
       extractedText: "",
     });
     setSubject("Matematik");
@@ -197,7 +195,7 @@ export function HomeCalendar({
     // Ny läxa direkt från kalendern
     if (type === "homework" && homeworkMode === "new") {
       if (!title.trim()) return;
-      const hw: Homework = {
+      const hw = withMirroredAttachmentFields({
         id: crypto.randomUUID(),
         title: title.trim(),
         subject,
@@ -207,16 +205,11 @@ export function HomeCalendar({
         description: description.trim(),
         helpNeeded: "",
         pageHints: "",
-        photoDataUrl: attachments.photoDataUrl,
-        pdfDataUrl: attachments.pdfDataUrl,
-        pdfFileName: attachments.pdfFileName,
-        extractedText:
-          attachments.extractedText.trim() ||
-          description.trim() ||
-          `Läxa: ${title.trim()}. Ämne: ${subject}.`,
+        attachments: attachments.attachments,
+        extractedText: attachments.extractedText,
         reminderEnabled: withReminder,
         recurringWeekly,
-      };
+      });
       upsertHomework(hw);
       const refreshed = loadData();
       const cal = refreshed.calendarEvents.find(
@@ -236,12 +229,7 @@ export function HomeCalendar({
       setShowForm(false);
       setTitle("");
       setDescription("");
-      setAttachments({
-        photoDataUrl: undefined,
-        pdfDataUrl: undefined,
-        pdfFileName: undefined,
-        extractedText: "",
-      });
+      setAttachments({ attachments: [], extractedText: "" });
       return;
     }
 
@@ -649,14 +637,7 @@ export function HomeCalendar({
                 />
                 <HomeworkAttachments
                   value={attachments}
-                  onChange={(next) =>
-                    setAttachments({
-                      photoDataUrl: next.photoDataUrl,
-                      pdfDataUrl: next.pdfDataUrl,
-                      pdfFileName: next.pdfFileName,
-                      extractedText: next.extractedText,
-                    })
-                  }
+                  onChange={setAttachments}
                 />
               </>
             )}

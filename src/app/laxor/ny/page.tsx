@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { SUBJECTS } from "@/lib/helpers";
-import type { Homework, Subject } from "@/lib/types";
+import { withMirroredAttachmentFields } from "@/lib/attachments";
+import type { Subject } from "@/lib/types";
 import {
   ensureHomeworkReminder,
   loadData,
@@ -24,9 +25,7 @@ export default function NyLaxaPage() {
   const [helpNeeded, setHelpNeeded] = useState("");
   const [pageHints, setPageHints] = useState("");
   const [attachments, setAttachments] = useState({
-    photoDataUrl: undefined as string | undefined,
-    pdfDataUrl: undefined as string | undefined,
-    pdfFileName: undefined as string | undefined,
+    attachments: [] as import("@/lib/types").HomeworkAttachment[],
     extractedText: "",
   });
   const [reminderEnabled, setReminderEnabled] = useState(false);
@@ -40,7 +39,7 @@ export default function NyLaxaPage() {
       setError("Titel och datum behövs.");
       return;
     }
-    const hw: Homework = {
+    const hw = withMirroredAttachmentFields({
       id: crypto.randomUUID(),
       title: title.trim(),
       subject,
@@ -50,16 +49,11 @@ export default function NyLaxaPage() {
       description: description.trim(),
       helpNeeded: helpNeeded.trim(),
       pageHints: pageHints.trim(),
-      photoDataUrl: attachments.photoDataUrl,
-      pdfDataUrl: attachments.pdfDataUrl,
-      pdfFileName: attachments.pdfFileName,
-      extractedText:
-        attachments.extractedText.trim() ||
-        description.trim() ||
-        `Läxa: ${title}. Ämne: ${subject}.`,
+      attachments: attachments.attachments,
+      extractedText: attachments.extractedText,
       reminderEnabled,
       recurringWeekly,
-    };
+    });
     upsertHomework(hw);
     if (reminderEnabled) {
       ensureHomeworkReminder(hw, reminderTime || "09:00");
@@ -173,14 +167,7 @@ export default function NyLaxaPage() {
 
         <HomeworkAttachments
           value={attachments}
-          onChange={(next) =>
-            setAttachments({
-              photoDataUrl: next.photoDataUrl,
-              pdfDataUrl: next.pdfDataUrl,
-              pdfFileName: next.pdfFileName,
-              extractedText: next.extractedText,
-            })
-          }
+          onChange={setAttachments}
         />
 
         <div className="space-y-2 rounded-xl bg-white/60 px-3 py-3">

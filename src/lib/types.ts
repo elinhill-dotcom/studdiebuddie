@@ -34,10 +34,24 @@ export interface Homework {
   /** Base64 data URL eller signerad länk till PDF */
   pdfDataUrl?: string;
   pdfFileName?: string;
+  /** Flera filer (bilder/PDF). Legacy-fälten speglas från första av varje typ. */
+  attachments?: HomeworkAttachment[];
   extractedText: string;
   reminderEnabled: boolean;
   /** Samma läxa varje vecka (samma veckodag) */
   recurringWeekly?: boolean;
+}
+
+export interface HomeworkAttachment {
+  id: string;
+  kind: "image" | "pdf";
+  /** data URL lokalt, signerad URL efter sync */
+  dataUrl: string;
+  fileName?: string;
+  /** Utläst text från PDF (eller tom för bild) */
+  extractedText?: string;
+  /** Storage-sökväg i Supabase (efter uppladdning) */
+  storagePath?: string;
 }
 
 export interface Note {

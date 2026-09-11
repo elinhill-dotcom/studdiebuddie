@@ -34,6 +34,7 @@ async function uploadHomeworkFile(
   homeworkId: string,
   dataUrl: string | undefined,
   kind: "image" | "pdf",
+  attachmentId?: string,
 ): Promise<string | null> {
   if (!dataUrl?.startsWith("data:")) return null;
   if (kind === "image" && !dataUrl.startsWith("data:image")) return null;
@@ -44,7 +45,9 @@ async function uploadHomeworkFile(
   const parsed = dataUrlToBlob(dataUrl);
   if (!parsed) return null;
 
-  const path = `${userId}/${homeworkId}.${parsed.ext}`;
+  const path = attachmentId
+    ? `${userId}/${homeworkId}/${attachmentId}.${parsed.ext}`
+    : `${userId}/${homeworkId}.${parsed.ext}`;
   const { error } = await supabase.storage
     .from("homework-photos")
     .upload(path, parsed.blob, { upsert: true, contentType: parsed.mime });
@@ -70,15 +73,64 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
   const supabase = createClient();
   if (!supabase) return;
 
-  let photoPath: string | null = null;
-  let pdfPath: string | null = null;
+  const attachments = hw.attachments?.length
+    ? [...hw.attachments]
+    : [
+        ...(hw.photoDataUrl
+          ? [
+              {
+                id: "legacy-photo",
+                kind: "image" as const,
+                dataUrl: hw.photoDataUrl,
+                fileName: "foto.jpg",
+              },
+            ]
+          : []),
+        ...(hw.pdfDataUrl
+          ? [
+              {
+                id: "legacy-pdf",
+                kind: "pdf" as const,
+                dataUrl: hw.pdfDataUrl,
+                fileName: hw.pdfFileName || "laxa.pdf",
+              },
+            ]
+          : []),
+      ];
 
-  if (hw.photoDataUrl?.startsWith("data:image")) {
-    photoPath = await uploadHomeworkFile(user.id, hw.id, hw.photoDataUrl, "image");
+  const storedAttachments: Array<{
+    id: string;
+    kind: "image" | "pdf";
+    path: string;
+    file_name?: string;
+    extracted_text?: string;
+  }> = [];
+
+  for (const a of attachments) {
+    let path = a.storagePath;
+    if (a.dataUrl?.startsWith("data:")) {
+      path =
+        (await uploadHomeworkFile(
+          user.id,
+          hw.id,
+          a.dataUrl,
+          a.kind,
+          a.id,
+        )) || path;
+    }
+    if (path) {
+      storedAttachments.push({
+        id: a.id,
+        kind: a.kind,
+        path,
+        file_name: a.fileName,
+        extracted_text: a.extractedText,
+      });
+    }
   }
-  if (hw.pdfDataUrl?.startsWith("data:application/pdf")) {
-    pdfPath = await uploadHomeworkFile(user.id, hw.id, hw.pdfDataUrl, "pdf");
-  }
+
+  const firstImage = storedAttachments.find((a) => a.kind === "image");
+  const firstPdf = storedAttachments.find((a) => a.kind === "pdf");
 
   const row: Record<string, unknown> = {
     id: hw.id,
@@ -93,12 +145,13 @@ export async function syncHomeworkToCloud(hw: Homework, user: User) {
     extracted_text: hw.extractedText,
     reminder_enabled: hw.reminderEnabled,
     recurring_weekly: Boolean(hw.recurringWeekly),
+    attachments: storedAttachments,
     created_at: hw.createdAt,
   };
-  if (photoPath) row.photo_path = photoPath;
-  if (pdfPath) {
-    row.pdf_path = pdfPath;
-    row.pdf_file_name = hw.pdfFileName || "laxa.pdf";
+  if (firstImage) row.photo_path = firstImage.path;
+  if (firstPdf) {
+    row.pdf_path = firstPdf.path;
+    row.pdf_file_name = firstPdf.file_name || "laxa.pdf";
   }
 
   const { error } = await supabase.from("homeworks").upsert(row);
@@ -313,23 +366,54 @@ export async function loadCloudAppData(user: User): Promise<AppData | null> {
   ]);
 
   const homeworks: Homework[] = await Promise.all(
-    (hwRes.data || []).map(async (row) => ({
-      id: row.id,
-      title: row.title,
-      subject: row.subject,
-      dueDate: row.due_date,
-      createdAt: row.created_at,
-      status: row.status,
-      description: row.description || "",
-      helpNeeded: row.help_needed || "",
-      pageHints: row.page_hints || "",
-      photoDataUrl: await signedFileUrl(row.photo_path),
-      pdfDataUrl: await signedFileUrl(row.pdf_path),
-      pdfFileName: row.pdf_file_name || undefined,
-      extractedText: row.extracted_text || "",
-      reminderEnabled: Boolean(row.reminder_enabled),
-      recurringWeekly: Boolean(row.recurring_weekly),
-    })),
+    (hwRes.data || []).map(async (row) => {
+      const rawAtt = Array.isArray(row.attachments) ? row.attachments : [];
+      const attachments = await Promise.all(
+        rawAtt.map(
+          async (a: {
+            id?: string;
+            kind?: string;
+            path?: string;
+            file_name?: string;
+            extracted_text?: string;
+          }) => {
+            const dataUrl = (await signedFileUrl(a.path)) || "";
+            return {
+              id: a.id || crypto.randomUUID(),
+              kind: (a.kind === "pdf" ? "pdf" : "image") as "image" | "pdf",
+              dataUrl,
+              fileName: a.file_name,
+              extractedText: a.extracted_text,
+              storagePath: a.path,
+            };
+          },
+        ),
+      );
+      const photoDataUrl =
+        attachments.find((a) => a.kind === "image")?.dataUrl ||
+        (await signedFileUrl(row.photo_path));
+      const pdfAtt = attachments.find((a) => a.kind === "pdf");
+      const pdfDataUrl =
+        pdfAtt?.dataUrl || (await signedFileUrl(row.pdf_path));
+      return {
+        id: row.id,
+        title: row.title,
+        subject: row.subject,
+        dueDate: row.due_date,
+        createdAt: row.created_at,
+        status: row.status,
+        description: row.description || "",
+        helpNeeded: row.help_needed || "",
+        pageHints: row.page_hints || "",
+        photoDataUrl,
+        pdfDataUrl,
+        pdfFileName: pdfAtt?.fileName || row.pdf_file_name || undefined,
+        attachments: attachments.filter((a) => a.dataUrl || a.extractedText),
+        extractedText: row.extracted_text || "",
+        reminderEnabled: Boolean(row.reminder_enabled),
+        recurringWeekly: Boolean(row.recurring_weekly),
+      };
+    }),
   );
 
   const pairsByList = new Map<string, { id: string; term: string; translation: string }[]>();

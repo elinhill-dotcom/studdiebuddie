@@ -202,6 +202,11 @@ export async function tutorGenerateQuestions(args: {
   photoDataUrl?: string;
   pdfDataUrl?: string;
   pdfFileName?: string;
+  attachments?: Array<{
+    kind: "image" | "pdf";
+    dataUrl: string;
+    fileName?: string;
+  }>;
 }): Promise<GenerateQuestionsResult | null> {
   const content: OpenAI.Responses.ResponseInputContent[] = [
     {
@@ -210,27 +215,54 @@ export async function tutorGenerateQuestions(args: {
     },
   ];
 
-  if (args.photoDataUrl?.startsWith("data:image")) {
-    content.push({
-      type: "input_image",
-      image_url: args.photoDataUrl,
-      detail: "auto",
-    });
-  } else if (args.photoDataUrl?.startsWith("http")) {
-    content.push({
-      type: "input_image",
-      image_url: args.photoDataUrl,
-      detail: "auto",
-    });
+  const attachments =
+    args.attachments?.length
+      ? args.attachments
+      : [
+          ...(args.photoDataUrl
+            ? [{ kind: "image" as const, dataUrl: args.photoDataUrl }]
+            : []),
+          ...(args.pdfDataUrl
+            ? [
+                {
+                  kind: "pdf" as const,
+                  dataUrl: args.pdfDataUrl,
+                  fileName: args.pdfFileName,
+                },
+              ]
+            : []),
+        ];
+
+  // Begränsa antal filer till OpenAI (texten täcker resten)
+  const images = attachments.filter((a) => a.kind === "image").slice(0, 6);
+  const pdfs = attachments.filter((a) => a.kind === "pdf").slice(0, 3);
+
+  for (const img of images) {
+    if (
+      img.dataUrl?.startsWith("data:image") ||
+      img.dataUrl?.startsWith("http")
+    ) {
+      content.push({
+        type: "input_image",
+        image_url: img.dataUrl,
+        detail: "auto",
+      });
+    }
   }
 
-  const pdfPayload = await resolvePdfDataUrl(args.pdfDataUrl);
-  if (pdfPayload) {
-    content.push({
-      type: "input_file",
-      filename: args.pdfFileName || "laxa.pdf",
-      file_data: pdfPayload,
-    } as OpenAI.Responses.ResponseInputContent);
+  for (const pdf of pdfs) {
+    // Skippa extremt stora PDF:er — texten finns redan i materialText
+    if (pdf.dataUrl?.startsWith("data:") && pdf.dataUrl.length > 8_000_000) {
+      continue;
+    }
+    const pdfPayload = await resolvePdfDataUrl(pdf.dataUrl);
+    if (pdfPayload && pdfPayload.length < 8_000_000) {
+      content.push({
+        type: "input_file",
+        filename: pdf.fileName || "laxa.pdf",
+        file_data: pdfPayload,
+      } as OpenAI.Responses.ResponseInputContent);
+    }
   }
 
   const raw = await createStructuredResponse({
