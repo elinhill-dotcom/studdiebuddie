@@ -1,0 +1,255 @@
+/**
+ * OpenAI Responses API helper — server-only.
+ * API key never leaves the server.
+ */
+
+import OpenAI from "openai";
+import {
+  QUESTION_GEN_INSTRUCTIONS,
+  TUTOR_TURN_INSTRUCTIONS,
+} from "./instructions";
+import type {
+  GenerateQuestionsResult,
+  GeneratedQuestion,
+  TutorTurn,
+} from "./types";
+
+function getClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  return new OpenAI({
+    apiKey,
+  });
+}
+
+const tutorTurnSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "student_message",
+    "evaluation",
+    "topic",
+    "next_action",
+    "confidence",
+  ],
+  properties: {
+    student_message: { type: "string" },
+    evaluation: {
+      type: "string",
+      enum: ["correct", "partially_correct", "incorrect", "not_assessable"],
+    },
+    topic: { type: "string" },
+    next_action: {
+      type: "string",
+      enum: [
+        "next_question",
+        "small_hint",
+        "strong_hint",
+        "explain",
+        "clarify",
+      ],
+    },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+  },
+} as const;
+
+const generateQuestionsSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["questions"],
+  properties: {
+    questions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["prompt", "expectedAnswer", "tip", "topic"],
+        properties: {
+          prompt: { type: "string" },
+          expectedAnswer: { type: "string" },
+          tip: { type: "string" },
+          topic: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
+function clampConfidence(n: unknown): number {
+  const v = typeof n === "number" ? n : Number(n);
+  if (Number.isNaN(v)) return 0.5;
+  return Math.min(1, Math.max(0, v));
+}
+
+function parseTutorTurn(raw: string): TutorTurn | null {
+  try {
+    const parsed = JSON.parse(raw) as TutorTurn;
+    if (!parsed.student_message?.trim()) return null;
+    if (
+      ![
+        "correct",
+        "partially_correct",
+        "incorrect",
+        "not_assessable",
+      ].includes(parsed.evaluation)
+    ) {
+      return null;
+    }
+    if (
+      ![
+        "next_question",
+        "small_hint",
+        "strong_hint",
+        "explain",
+        "clarify",
+      ].includes(parsed.next_action)
+    ) {
+      return null;
+    }
+    return {
+      student_message: parsed.student_message.trim(),
+      evaluation: parsed.evaluation,
+      topic: String(parsed.topic || "").trim() || "allmänt",
+      next_action: parsed.next_action,
+      confidence: clampConfidence(parsed.confidence),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function createStructuredResponse(args: {
+  instructions: string;
+  input: OpenAI.Responses.ResponseInput;
+  schemaName: string;
+  schema: Record<string, unknown>;
+}): Promise<string | null> {
+  const openai = getClient();
+  if (!openai) return null;
+
+  try {
+    // Responses API — nyckel endast server-side, store: false
+    const response = await openai.responses.create({
+      model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
+
+      instructions: args.instructions,
+      // t.ex. "Du är Studdiebuddie... Ge inte facit direkt...
+      // Utgå från uppladdat material... Ge ledtrådar..."
+
+      input: args.input,
+
+      store: false,
+
+      text: {
+        format: {
+          type: "json_schema",
+          name: args.schemaName,
+          strict: true,
+          schema: args.schema,
+        },
+      },
+    });
+
+    const text = response.output_text?.trim();
+    return text || null;
+  } catch (err) {
+    console.error("OpenAI Responses API error", err);
+    return null;
+  }
+}
+
+export async function tutorEvaluateAnswer(args: {
+  question: string;
+  expectedAnswer: string;
+  userAnswer: string;
+  tip?: string;
+  material?: string;
+  attemptCount?: number;
+  mode?: string;
+}): Promise<TutorTurn | null> {
+  const attemptCount = Math.max(1, args.attemptCount ?? 1);
+  const payload = {
+    question: args.question,
+    expectedAnswer: args.expectedAnswer,
+    userAnswer: args.userAnswer,
+    tip: args.tip || null,
+    material: args.material || null,
+    attemptCount,
+    mode: args.mode || "single",
+  };
+
+  const raw = await createStructuredResponse({
+    instructions: TUTOR_TURN_INSTRUCTIONS,
+    input: [
+      {
+        role: "user",
+        content: `Evaluate this student turn. Return JSON only.\n\n${JSON.stringify(payload)}`,
+      },
+    ],
+    schemaName: "tutor_turn",
+    schema: tutorTurnSchema as unknown as Record<string, unknown>,
+  });
+
+  if (!raw) return null;
+  return parseTutorTurn(raw);
+}
+
+export async function tutorGenerateQuestions(args: {
+  materialText: string;
+  count: number;
+  photoDataUrl?: string;
+}): Promise<GenerateQuestionsResult | null> {
+  const content: OpenAI.Responses.ResponseInputContent[] = [
+    {
+      type: "input_text",
+      text: `Create exactly ${args.count} quiz questions from ONLY this uploaded material. Return JSON only.\n\n${args.materialText}`,
+    },
+  ];
+
+  if (args.photoDataUrl?.startsWith("data:image")) {
+    content.push({
+      type: "input_image",
+      image_url: args.photoDataUrl,
+      detail: "auto",
+    });
+  }
+
+  const raw = await createStructuredResponse({
+    instructions: QUESTION_GEN_INSTRUCTIONS,
+    input: [
+      {
+        role: "user",
+        content,
+      },
+    ],
+    schemaName: "quiz_questions",
+    schema: generateQuestionsSchema as unknown as Record<string, unknown>,
+  });
+
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { questions?: GeneratedQuestion[] };
+    const questions = (parsed.questions || [])
+      .filter((q) => q.prompt?.trim() && q.expectedAnswer?.trim())
+      .map((q) => ({
+        prompt: q.prompt.trim(),
+        expectedAnswer: q.expectedAnswer.trim(),
+        tip: q.tip?.trim() || undefined,
+        topic: q.topic?.trim() || undefined,
+      }));
+    if (!questions.length) return null;
+    return { questions: questions.slice(0, args.count) };
+  } catch {
+    return null;
+  }
+}
+
+/** Map internal tutor turn → legacy UI fields (feedback/correct) without changing the UI. */
+export function toLegacyGradePayload(turn: TutorTurn) {
+  return {
+    ...turn,
+    feedback: turn.student_message,
+    correct: turn.evaluation === "correct",
+  };
+}
