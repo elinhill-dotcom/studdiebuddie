@@ -3,16 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { gradeAnswer, gradeVocabAnswer, rewriteQuestion } from "@/lib/ai-quiz";
-import { loadData, upsertQuiz } from "@/lib/store";
+import { loadData, upsertExam, upsertQuiz } from "@/lib/store";
 import type { Homework, QuizSession } from "@/lib/types";
 import {
   tutorLangFromSubject,
   tutorLangFromSubjects,
   type TutorLang,
 } from "@/lib/tutor-lang";
+
+const SESSION_MS = 15 * 60 * 1000;
 
 type ChatMsg = {
   id: string;
@@ -30,6 +32,13 @@ type GradeResult = {
 
 function mid() {
   return crypto.randomUUID();
+}
+
+function formatClock(sec: number) {
+  const s = Math.max(0, sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
 const bridgeByLang: Record<TutorLang, string[]> = {
@@ -68,52 +77,106 @@ function introFor(
   opts: { vocab: boolean; multi: boolean; n: number; title: string; firstQ: string },
 ) {
   const name = opts.title.replace(/^Glosförhör:\s*/, "");
+  const timeNote =
+    lang === "en"
+      ? "We'll chat for about 15 minutes, then I'll wrap up with tips on what to practise."
+      : lang === "es"
+        ? "Hablaremos unos 15 minutos y luego te daré tips de qué practicar."
+        : lang === "de"
+          ? "Wir sprechen etwa 15 Minuten, dann fasse ich zusammen, was du üben solltest."
+          : "Vi håller på i ungefär 15 minuter — sen rundar jag av med tips på vad du kan träna mer.";
+
   if (opts.vocab) {
     if (lang === "en")
-      return `Hi! I'm your study buddy. We'll chat through the vocab in “${name}” — like a real conversation. I won't give the answer key, just tips and pep.\n\n${opts.firstQ}`;
+      return `Hi! I'm your study buddy. We'll chat through the vocab in “${name}”. ${timeNote} I won't give the answer key.\n\n${opts.firstQ}`;
     if (lang === "es")
-      return `¡Hola! Soy tu compañero de estudio. Hablaremos del vocabulario de “${name}” como una conversación. No doy la respuesta directa, solo pistas y ánimo.\n\n${opts.firstQ}`;
+      return `¡Hola! Soy tu compañero de estudio. Hablaremos del vocabulario de “${name}”. ${timeNote} Sin respuesta directa.\n\n${opts.firstQ}`;
     if (lang === "de")
-      return `Hallo! Ich bin dein Lernbuddy. Wir sprechen über die Vokabeln in „${name}“ — wie ein echtes Gespräch. Ich gebe keine direkte Lösung, nur Tipps und Mut.\n\n${opts.firstQ}`;
-    return `Hej! Jag är din pluggkompis. Vi snackar oss igenom glosorna i “${name}” — som ett vanligt samtal. Jag ger aldrig facit, bara tips och pepp.\n\n${opts.firstQ}`;
+      return `Hallo! Ich bin dein Lernbuddy. Wir sprechen über die Vokabeln in „${name}“. ${timeNote} Keine direkte Lösung.\n\n${opts.firstQ}`;
+    return `Hej! Jag är din pluggkompis. Vi snackar oss igenom glosorna i “${name}”. ${timeNote} Ingen facit.\n\n${opts.firstQ}`;
   }
   if (opts.multi) {
     if (lang === "en")
-      return `Hi! I've read ${opts.n} of your homework assignments. Let's talk them through together — you answer in your own words, I guide you. No answer key.\n\n${opts.firstQ}`;
+      return `Hi! I've read ${opts.n} of your homework assignments. ${timeNote}\n\n${opts.firstQ}`;
     if (lang === "es")
-      return `¡Hola! He leído ${opts.n} deberes. Hablemos de ellos juntos — tú respondes con tus palabras, yo te guío. Sin respuesta directa.\n\n${opts.firstQ}`;
+      return `¡Hola! He leído ${opts.n} deberes. ${timeNote}\n\n${opts.firstQ}`;
     if (lang === "de")
-      return `Hallo! Ich habe ${opts.n} Hausaufgaben gelesen. Lass uns darüber reden — du antwortest mit eigenen Worten, ich helfe. Keine direkte Lösung.\n\n${opts.firstQ}`;
-    return `Hej! Jag har läst ${opts.n} av dina läxor. Vi pratar igenom dem tillsammans — du svarar med egna ord, jag vägleder. Ingen facit.\n\n${opts.firstQ}`;
+      return `Hallo! Ich habe ${opts.n} Hausaufgaben gelesen. ${timeNote}\n\n${opts.firstQ}`;
+    return `Hej! Jag har läst ${opts.n} av dina läxor. ${timeNote}\n\n${opts.firstQ}`;
   }
   if (lang === "en")
-    return `Hi! I've read your material. Let's learn through a conversation — answer in your own words and I'll guide you. I never give the answer key.\n\n${opts.firstQ}`;
+    return `Hi! I've read your material. ${timeNote}\n\n${opts.firstQ}`;
   if (lang === "es")
-    return `¡Hola! He leído tu material. Aprendamos hablando — responde con tus palabras y te guío. Nunca doy la respuesta directa.\n\n${opts.firstQ}`;
+    return `¡Hola! He leído tu material. ${timeNote}\n\n${opts.firstQ}`;
   if (lang === "de")
-    return `Hallo! Ich habe dein Material gelesen. Wir lernen im Gespräch — antworte mit eigenen Worten, ich helfe. Keine direkte Lösung.\n\n${opts.firstQ}`;
-  return `Hej! Jag har läst ditt material. Vi lär oss genom att prata — svara med egna ord så vägleder jag dig. Jag ger aldrig facit.\n\n${opts.firstQ}`;
+    return `Hallo! Ich habe dein Material gelesen. ${timeNote}\n\n${opts.firstQ}`;
+  return `Hej! Jag har läst ditt material. ${timeNote}\n\n${opts.firstQ}`;
 }
 
-function doneMsg(lang: TutorLang, scorePercent: number, failed: number) {
-  if (lang === "en") {
-    return failed === 0
-      ? `That was a solid chat — you really got this (${scorePercent}%). Great work!`
-      : `Nice conversation! You landed around ${scorePercent}%. A few bits were tricky — want to practise those?`;
+function buildPracticeTips(session: QuizSession): string[] {
+  const failedIds = new Set(
+    session.answers.filter((a) => !a.correct).map((a) => a.questionId),
+  );
+  const tips: string[] = [];
+  for (const q of session.questions) {
+    if (!failedIds.has(q.id)) continue;
+    const topic = q.topic?.trim();
+    if (topic && !tips.includes(topic)) tips.push(topic);
   }
-  if (lang === "es") {
-    return failed === 0
-      ? `¡Buena conversación! Lo tienes claro (${scorePercent}%). ¡Bien hecho!`
-      : `¡Buena charla! Alrededor de ${scorePercent}%. Algunas partes fueron más difíciles — ¿las practicamos?`;
+  // Om inga topics: korta frågeutdrag
+  if (!tips.length) {
+    for (const q of session.questions) {
+      if (!failedIds.has(q.id)) continue;
+      const short = q.prompt.trim().slice(0, 60);
+      if (short) tips.push(short + (q.prompt.length > 60 ? "…" : ""));
+      if (tips.length >= 4) break;
+    }
   }
-  if (lang === "de") {
-    return failed === 0
-      ? `Gutes Gespräch — du hast das drauf (${scorePercent}%). Super!`
-      : `Schönes Gespräch! Etwa ${scorePercent}%. Ein paar Stellen waren knifflig — wollen wir die üben?`;
+  return tips.slice(0, 5);
+}
+
+function wrapUpMsg(
+  lang: TutorLang,
+  opts: {
+    scorePercent: number;
+    timedOut: boolean;
+    tips: string[];
+  },
+) {
+  const tipBlock =
+    opts.tips.length > 0
+      ? lang === "en"
+        ? `\n\nPractise more:\n${opts.tips.map((t) => `• ${t}`).join("\n")}\n\nThen come back for a new quiz — you'll notice the difference.`
+        : lang === "es"
+          ? `\n\nPractica más:\n${opts.tips.map((t) => `• ${t}`).join("\n")}\n\nLuego vuelve a hacer un nuevo quiz.`
+          : lang === "de"
+            ? `\n\nÜbe besonders:\n${opts.tips.map((t) => `• ${t}`).join("\n")}\n\nKomm danach zu einem neuen Quiz zurück.`
+            : `\n\nTräna mer på:\n${opts.tips.map((t) => `• ${t}`).join("\n")}\n\nKom sedan tillbaka och gör ett nytt förhör — då märker du skillnaden.`
+      : lang === "en"
+        ? "\n\nYou handled this well. A new quiz anytime is a great way to keep it fresh."
+        : lang === "es"
+          ? "\n\nLo llevaste bien. Un nuevo quiz cuando quieras ayuda a fijarlo."
+          : lang === "de"
+            ? "\n\nDas lief gut. Ein neues Quiz hält es frisch."
+            : "\n\nDu hade bra grepp. Ett nytt förhör när du vill hjälper dig hålla kvar det.";
+
+  if (opts.timedOut) {
+    if (lang === "en")
+      return `Time's up — nice 15-minute session (${opts.scorePercent}% on what we covered).${tipBlock}`;
+    if (lang === "es")
+      return `Se acabó el tiempo — buenos 15 minutos (${opts.scorePercent}% en lo que vimos).${tipBlock}`;
+    if (lang === "de")
+      return `Zeit ist um — gute 15 Minuten (${opts.scorePercent}% zu dem, was wir geschafft haben).${tipBlock}`;
+    return `Tiden är slut — fint 15-minuterspass (${opts.scorePercent}% på det vi hann).${tipBlock}`;
   }
-  return failed === 0
-    ? `Vad fint samtal — du har greppet (${scorePercent}%). Grymt jobbat!`
-    : `Bra snack! Du landade runt ${scorePercent}%. Några bitar var kluriga — vill du träna dem?`;
+
+  if (lang === "en")
+    return `Let's wrap up here (${opts.scorePercent}%). Great chat!${tipBlock}`;
+  if (lang === "es")
+    return `Cerremos aquí (${opts.scorePercent}%). ¡Buena charla!${tipBlock}`;
+  if (lang === "de")
+    return `Wir runden ab (${opts.scorePercent}%). Schönes Gespräch!${tipBlock}`;
+  return `Vi rundar av här (${opts.scorePercent}%). Bra samtal!${tipBlock}`;
 }
 
 function ChatBubble({ msg }: { msg: ChatMsg }) {
@@ -162,8 +225,11 @@ export default function ForhorSessionPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [booted, setBooted] = useState(false);
   const [attempts, setAttempts] = useState<Record<string, number>>({});
+  const [practiceTips, setPracticeTips] = useState<string[]>([]);
+  const [secondsLeft, setSecondsLeft] = useState(15 * 60);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const finishingRef = useRef(false);
 
   const linkedHomeworks = useMemo(() => {
     if (!session) return [] as Homework[];
@@ -205,6 +271,26 @@ export default function ForhorSessionPage() {
     if (session.finishedAt) setFinished(true);
   }, [session, booted, chatLang]);
 
+  // 15-minuterspass
+  useEffect(() => {
+    if (!session || session.finishedAt || finished) return;
+    const endAt = new Date(session.startedAt).getTime() + SESSION_MS;
+
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left <= 0 && !finishingRef.current) {
+        finishingRef.current = true;
+        const current =
+          loadData().quizSessions.find((q) => q.id === id) || session;
+        finishSessionRef.current?.(current, true);
+      }
+    };
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [session, finished, id]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
@@ -212,6 +298,66 @@ export default function ForhorSessionPage() {
   useEffect(() => {
     if (!busy && !finished) inputRef.current?.focus();
   }, [busy, finished, index]);
+
+  const persist = useCallback(
+    (next: QuizSession) => {
+      upsertQuiz(next);
+      notifyDataChanged();
+      refresh();
+    },
+    [refresh],
+  );
+
+  const finishSession = useCallback(
+    (current: QuizSession, timedOut: boolean) => {
+      if (finished || current.finishedAt) return;
+      finishingRef.current = true;
+      const answered = current.answers;
+      const correctCount = answered.filter((a) => a.correct).length;
+      const scorePercent = answered.length
+        ? Math.round((correctCount / answered.length) * 100)
+        : 0;
+      const tips = buildPracticeTips(current);
+      setPracticeTips(tips);
+
+      const updated: QuizSession = {
+        ...current,
+        finishedAt: new Date().toISOString(),
+        scorePercent,
+      };
+      persist(updated);
+
+      if (hw || tips.length) {
+        upsertExam({
+          id: crypto.randomUUID(),
+          title: current.title,
+          subject: hw?.subject || "Annat",
+          date: new Date().toISOString().slice(0, 10),
+          scorePercent,
+          reflection: timedOut ? "15-minuters förhör" : "Förhör avslutat",
+          weakTopics: tips,
+          relatedHomeworkIds: current.homeworkIds,
+          createdAt: new Date().toISOString(),
+        });
+        notifyDataChanged();
+      }
+
+      setMessages((m) => [
+        ...m,
+        {
+          id: mid(),
+          role: "ai",
+          text: wrapUpMsg(chatLang, { scorePercent, timedOut, tips }),
+          tone: "pep",
+        },
+      ]);
+      setFinished(true);
+    },
+    [finished, persist, hw, chatLang],
+  );
+
+  const finishSessionRef = useRef(finishSession);
+  finishSessionRef.current = finishSession;
 
   if (!ready) return <p className="text-muted">Laddar…</p>;
   if (!session) {
@@ -226,34 +372,11 @@ export default function ForhorSessionPage() {
   }
 
   const question = session.questions[index];
-  const progress = Math.round(
-    (session.answers.length / Math.max(session.questions.length, 1)) * 100,
-  );
   const isDone = finished || Boolean(session.finishedAt);
-
-  const persist = (next: QuizSession) => {
-    upsertQuiz(next);
-    notifyDataChanged();
-    refresh();
-  };
+  const timeAlmostUp = secondsLeft <= 30;
 
   const pushAi = (text: string, tone?: ChatMsg["tone"]) => {
     setMessages((m) => [...m, { id: mid(), role: "ai", text, tone }]);
-  };
-
-  const finishSession = (current: QuizSession) => {
-    const correctCount = current.answers.filter((a) => a.correct).length;
-    const scorePercent = Math.round(
-      (correctCount / Math.max(current.answers.length, 1)) * 100,
-    );
-    const failed = current.answers.length - correctCount;
-    persist({
-      ...current,
-      finishedAt: new Date().toISOString(),
-      scorePercent,
-    });
-    pushAi(doneMsg(chatLang, scorePercent, failed), "pep");
-    setFinished(true);
   };
 
   const advanceConversation = (
@@ -261,13 +384,23 @@ export default function ForhorSessionPage() {
     tutorText: string,
     tone: ChatMsg["tone"],
   ) => {
+    // Tiden nästan slut → runda av i stället för ny fråga
+    if (secondsLeft <= 20) {
+      setMessages((m) => [
+        ...m,
+        { id: mid(), role: "ai", text: tutorText, tone },
+      ]);
+      finishSession(current, true);
+      return;
+    }
+
     const nextIndex = index + 1;
     if (nextIndex >= current.questions.length) {
       setMessages((m) => [
         ...m,
         { id: mid(), role: "ai", text: tutorText, tone },
       ]);
-      finishSession(current);
+      finishSession(current, false);
       return;
     }
     const nextQ = current.questions[nextIndex];
@@ -416,21 +549,21 @@ export default function ForhorSessionPage() {
             ...current.answers,
             {
               questionId: question.id,
-              userAnswer: "(gick vidare)",
+              userAnswer: "(låste sig — gick vidare)",
               correct: false,
-              feedback: "Gick vidare i samtalet",
+              feedback: "Gick vidare",
             },
           ],
         };
     if (!already) persist(updated);
     const soft =
       chatLang === "en"
-        ? "No stress — we'll leave that for now."
+        ? "No stress — we'll leave that for now and keep talking."
         : chatLang === "es"
-          ? "Sin prisa — lo dejamos por ahora."
+          ? "Sin prisa — lo dejamos y seguimos hablando."
           : chatLang === "de"
-            ? "Kein Stress — wir lassen das erstmal."
-            : "Ingen stress — vi lämnar det där för nu.";
+            ? "Kein Stress — wir lassen das und reden weiter."
+            : "Ingen stress — vi lämnar det och pratar vidare.";
     advanceConversation(updated, soft, "pep");
   };
 
@@ -462,6 +595,15 @@ export default function ForhorSessionPage() {
       current.answers.filter((a) => !a.correct).map((a) => a.questionId),
     );
     const base = current.questions.filter((q) => failedIds.has(q.id));
+    if (!base.length) {
+      // Nytt förhör på samma läxor
+      const href =
+        current.homeworkIds.length === 1
+          ? `/forhor/start?homework=${current.homeworkIds[0]}`
+          : `/forhor/start?homeworks=${current.homeworkIds.join(",")}`;
+      window.location.href = href;
+      return;
+    }
     const retryQs = base.map((q) => rewriteQuestion(q, hw));
     const retry: QuizSession = {
       id: crypto.randomUUID(),
@@ -478,9 +620,25 @@ export default function ForhorSessionPage() {
     window.location.href = `/forhor/${retry.id}`;
   };
 
+  const startFreshQuiz = () => {
+    if (session.mode === "vocab" && session.vocabListId) {
+      window.location.href = `/glosor/${session.vocabListId}`;
+      return;
+    }
+    const href =
+      session.homeworkIds.length === 1
+        ? `/forhor/start?homework=${session.homeworkIds[0]}`
+        : session.homeworkIds.length > 1
+          ? `/forhor/start?homeworks=${session.homeworkIds.join(",")}`
+          : "/forhor";
+    window.location.href = href;
+  };
+
   const latest = loadData().quizSessions.find((q) => q.id === id) || session;
   const failedCount = latest.answers.filter((a) => !a.correct).length;
-  const currentAttempts = question ? attempts[question.id] || 0 : 0;
+  const tipsShown = practiceTips.length
+    ? practiceTips
+    : buildPracticeTips(latest);
 
   return (
     <div className="mx-auto flex h-[min(720px,calc(100vh-8rem))] max-w-lg flex-col">
@@ -488,13 +646,35 @@ export default function ForhorSessionPage() {
         <Link href="/forhor" className="text-sm text-muted hover:text-ink">
           ← Rummet
         </Link>
-        <span className="text-xs text-muted">Lärsamtal</span>
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
+            isDone
+              ? "bg-sage-soft text-sage"
+              : timeAlmostUp
+                ? "bg-coral/15 text-coral"
+                : "bg-sky-soft text-sky"
+          }`}
+        >
+          {isDone ? "Klart" : formatClock(secondsLeft)}
+        </span>
       </div>
 
       <div className="mb-2 h-1 overflow-hidden rounded-full bg-[var(--line)]">
         <div
-          className="h-full bg-sage transition-all duration-300"
-          style={{ width: `${isDone ? 100 : progress}%` }}
+          className={`h-full transition-all duration-300 ${
+            timeAlmostUp && !isDone ? "bg-coral" : "bg-sage"
+          }`}
+          style={{
+            width: `${
+              isDone
+                ? 100
+                : Math.min(
+                    100,
+                    ((SESSION_MS / 1000 - secondsLeft) / (SESSION_MS / 1000)) *
+                      100,
+                  )
+            }%`,
+          }}
         />
       </div>
 
@@ -509,7 +689,9 @@ export default function ForhorSessionPage() {
           />
           <div>
             <p className="text-sm font-semibold">Buddie</p>
-            <p className="text-xs text-muted">Lärkonversation · ingen facit</p>
+            <p className="text-xs text-muted">
+              Lärsamtal · ca 15 min · ingen facit
+            </p>
           </div>
         </div>
 
@@ -551,49 +733,58 @@ export default function ForhorSessionPage() {
                   Skicka
                 </button>
               </div>
-              {currentAttempts >= 2 && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn-ghost text-xs"
-                    disabled={busy}
-                    onClick={askAnotherWay}
-                  >
-                    Fråga på annat sätt
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost text-xs"
-                    disabled={busy}
-                    onClick={continueSoftly}
-                  >
-                    Gå vidare i samtalet
-                  </button>
-                </div>
-              )}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  disabled={busy}
+                  onClick={continueSoftly}
+                >
+                  Jag låser mig — gå vidare
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost text-xs"
+                  disabled={busy}
+                  onClick={askAnotherWay}
+                >
+                  Fråga på annat sätt
+                </button>
+              </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {failedCount > 0 && (
+            <div className="space-y-3">
+              {tipsShown.length > 0 && (
+                <div className="rounded-xl bg-brass-soft/50 px-3 py-2 text-sm">
+                  <p className="font-semibold text-brass">Träna mer på</p>
+                  <ul className="mt-1 list-inside list-disc text-ink-soft">
+                    {tipsShown.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   className="btn-primary text-sm"
-                  onClick={startRetry}
+                  onClick={startFreshQuiz}
                 >
-                  Träna det jag missade
+                  Nytt förhör
                 </button>
-              )}
-              <Link href="/forhor" className="btn-secondary text-sm">
-                Till förhörsrummet
-              </Link>
-              {session.mode === "vocab" && session.vocabListId && (
-                <Link
-                  href={`/glosor/${session.vocabListId}`}
-                  className="btn-ghost text-sm"
-                >
-                  Till gloslistan
+                {failedCount > 0 && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-sm"
+                    onClick={startRetry}
+                  >
+                    Träna det jag missade
+                  </button>
+                )}
+                <Link href="/forhor" className="btn-ghost text-sm">
+                  Till förhörsrummet
                 </Link>
-              )}
+              </div>
             </div>
           )}
         </div>
