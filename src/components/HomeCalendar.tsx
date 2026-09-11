@@ -19,6 +19,7 @@ import {
 } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
 import { ExamPlanner } from "@/components/ExamPlanner";
+import { HomeworkAttachments } from "@/components/HomeworkAttachments";
 import { TimeInput24 } from "@/components/TimeInput24";
 import Link from "next/link";
 
@@ -98,6 +99,12 @@ export function HomeCalendar({
   const [homeworkMode, setHomeworkMode] = useState<"new" | "existing">("new");
   const [description, setDescription] = useState("");
   const [recurringWeekly, setRecurringWeekly] = useState(false);
+  const [attachments, setAttachments] = useState({
+    photoDataUrl: undefined as string | undefined,
+    pdfDataUrl: undefined as string | undefined,
+    pdfFileName: undefined as string | undefined,
+    extractedText: "",
+  });
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -171,6 +178,12 @@ export function HomeCalendar({
     setLinkedHomeworkId("");
     setHomeworkMode("new");
     setRecurringWeekly(false);
+    setAttachments({
+      photoDataUrl: undefined,
+      pdfDataUrl: undefined,
+      pdfFileName: undefined,
+      extractedText: "",
+    });
     setSubject("Matematik");
     setTime(t === "study" ? "17:00" : "09:00");
     setWithReminder(true);
@@ -194,8 +207,13 @@ export function HomeCalendar({
         description: description.trim(),
         helpNeeded: "",
         pageHints: "",
+        photoDataUrl: attachments.photoDataUrl,
+        pdfDataUrl: attachments.pdfDataUrl,
+        pdfFileName: attachments.pdfFileName,
         extractedText:
-          description.trim() || `Läxa: ${title.trim()}. Ämne: ${subject}.`,
+          attachments.extractedText.trim() ||
+          description.trim() ||
+          `Läxa: ${title.trim()}. Ämne: ${subject}.`,
         reminderEnabled: withReminder,
         recurringWeekly,
       };
@@ -218,6 +236,12 @@ export function HomeCalendar({
       setShowForm(false);
       setTitle("");
       setDescription("");
+      setAttachments({
+        photoDataUrl: undefined,
+        pdfDataUrl: undefined,
+        pdfFileName: undefined,
+        extractedText: "",
+      });
       return;
     }
 
@@ -616,12 +640,25 @@ export function HomeCalendar({
             )}
 
             {type === "homework" && homeworkMode === "new" && (
-              <textarea
-                className="input-field min-h-16 py-1.5 text-sm"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Vad ska du göra? (valfritt — fil kan laddas upp senare)"
-              />
+              <>
+                <textarea
+                  className="input-field min-h-16 py-1.5 text-sm"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Vad ska du göra? (valfritt)"
+                />
+                <HomeworkAttachments
+                  value={attachments}
+                  onChange={(next) =>
+                    setAttachments({
+                      photoDataUrl: next.photoDataUrl,
+                      pdfDataUrl: next.pdfDataUrl,
+                      pdfFileName: next.pdfFileName,
+                      extractedText: next.extractedText,
+                    })
+                  }
+                />
+              </>
             )}
 
             <div className="grid grid-cols-2 gap-2">
