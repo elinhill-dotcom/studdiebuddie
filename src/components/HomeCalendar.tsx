@@ -95,6 +95,9 @@ export function HomeCalendar({
   const [subject, setSubject] = useState<Subject>("Matematik");
   const [withReminder, setWithReminder] = useState(true);
   const [linkedHomeworkId, setLinkedHomeworkId] = useState("");
+  const [homeworkMode, setHomeworkMode] = useState<"new" | "existing">("new");
+  const [description, setDescription] = useState("");
+  const [recurringWeekly, setRecurringWeekly] = useState(false);
 
   const byDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -164,7 +167,11 @@ export function HomeCalendar({
   const openForm = (t: CalendarEventType) => {
     setType(t);
     setTitle("");
+    setDescription("");
     setLinkedHomeworkId("");
+    setHomeworkMode("new");
+    setRecurringWeekly(false);
+    setSubject("Matematik");
     setTime(t === "study" ? "17:00" : "09:00");
     setWithReminder(true);
     setShowExamPlan(false);
@@ -174,7 +181,47 @@ export function HomeCalendar({
   const saveEvent = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Lägg in befintlig läxa på vald dag
+    // Ny läxa direkt från kalendern
+    if (type === "homework" && homeworkMode === "new") {
+      if (!title.trim()) return;
+      const hw: Homework = {
+        id: crypto.randomUUID(),
+        title: title.trim(),
+        subject,
+        dueDate: selected,
+        createdAt: new Date().toISOString(),
+        status: "todo",
+        description: description.trim(),
+        helpNeeded: "",
+        pageHints: "",
+        extractedText:
+          description.trim() || `Läxa: ${title.trim()}. Ämne: ${subject}.`,
+        reminderEnabled: withReminder,
+        recurringWeekly,
+      };
+      upsertHomework(hw);
+      const refreshed = loadData();
+      const cal = refreshed.calendarEvents.find(
+        (ev) =>
+          ev.homeworkId === hw.id &&
+          ev.type === "homework" &&
+          ev.date === selected,
+      );
+      if (cal && time) {
+        upsertCalendarEvent({ ...cal, time });
+      }
+      if (withReminder) {
+        ensureHomeworkReminder(hw, time || "09:00");
+      }
+      notifyDataChanged();
+      onChange();
+      setShowForm(false);
+      setTitle("");
+      setDescription("");
+      return;
+    }
+
+    // Koppla befintlig läxa till vald dag
     if (type === "homework" && linkedHomeworkId) {
       const data = loadData();
       const hw = data.homeworks.find((h) => h.id === linkedHomeworkId);
@@ -185,10 +232,9 @@ export function HomeCalendar({
         reminderEnabled: withReminder || hw.reminderEnabled,
       };
       upsertHomework(updated);
-      // Spara tid på kalenderhändelsen
       const refreshed = loadData();
       const cal = refreshed.calendarEvents.find(
-        (e) => e.homeworkId === hw.id && e.type === "homework",
+        (ev) => ev.homeworkId === hw.id && ev.type === "homework",
       );
       if (cal && time) {
         upsertCalendarEvent({ ...cal, time });
@@ -495,11 +541,41 @@ export function HomeCalendar({
               {type === "exam"
                 ? "Nytt prov (fristående)"
                 : type === "homework"
-                  ? "Läxa i kalendern"
+                  ? "Ny läxa"
                   : "Pluggtillfälle"}
             </p>
 
-            {type === "homework" ? (
+            {type === "homework" && (
+              <div className="flex gap-1 rounded-lg bg-white/70 p-0.5 text-xs">
+                <button
+                  type="button"
+                  className={`flex-1 rounded-md px-2 py-1.5 font-medium ${
+                    homeworkMode === "new"
+                      ? "bg-sage text-white"
+                      : "text-muted"
+                  }`}
+                  onClick={() => {
+                    setHomeworkMode("new");
+                    setLinkedHomeworkId("");
+                  }}
+                >
+                  Ny läxa
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 rounded-md px-2 py-1.5 font-medium ${
+                    homeworkMode === "existing"
+                      ? "bg-sage text-white"
+                      : "text-muted"
+                  }`}
+                  onClick={() => setHomeworkMode("existing")}
+                >
+                  Befintlig
+                </button>
+              </div>
+            )}
+
+            {type === "homework" && homeworkMode === "existing" ? (
               <select
                 className="input-field py-1.5 text-sm"
                 value={linkedHomeworkId}
@@ -527,9 +603,24 @@ export function HomeCalendar({
                 className="input-field py-1.5 text-sm"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={type === "exam" ? "Provets titel" : "Titel"}
+                placeholder={
+                  type === "exam"
+                    ? "Provets titel"
+                    : type === "homework"
+                      ? "Läxans titel"
+                      : "Titel"
+                }
                 autoFocus
                 required
+              />
+            )}
+
+            {type === "homework" && homeworkMode === "new" && (
+              <textarea
+                className="input-field min-h-16 py-1.5 text-sm"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Vad ska du göra? (valfritt — fil kan laddas upp senare)"
               />
             )}
 
@@ -540,7 +631,10 @@ export function HomeCalendar({
                 onChange={(e) => {
                   const t = e.target.value as CalendarEventType;
                   setType(t);
-                  if (t !== "homework") setLinkedHomeworkId("");
+                  if (t !== "homework") {
+                    setLinkedHomeworkId("");
+                    setHomeworkMode("new");
+                  }
                 }}
               >
                 <option value="exam">Prov</option>
@@ -550,7 +644,7 @@ export function HomeCalendar({
               <TimeInput24 value={time} onChange={setTime} className="w-full" />
             </div>
 
-            {type !== "homework" && (
+            {(type !== "homework" || homeworkMode === "new") && (
               <select
                 className="input-field py-1.5 text-sm"
                 value={subject}
@@ -562,6 +656,17 @@ export function HomeCalendar({
                   </option>
                 ))}
               </select>
+            )}
+
+            {type === "homework" && homeworkMode === "new" && (
+              <label className="flex items-center gap-2 text-xs text-ink-soft">
+                <input
+                  type="checkbox"
+                  checked={recurringWeekly}
+                  onChange={(e) => setRecurringWeekly(e.target.checked)}
+                />
+                Återkommer varje vecka
+              </label>
             )}
 
             <label className="flex items-center gap-2 text-xs text-ink-soft">
