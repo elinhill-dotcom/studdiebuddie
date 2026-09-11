@@ -16,6 +16,7 @@ import {
 } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
 import { ExamPlanner } from "@/components/ExamPlanner";
+import { TimeInput24 } from "@/components/TimeInput24";
 import Link from "next/link";
 
 const WEEKDAYS = ["M", "T", "O", "T", "F", "L", "S"];
