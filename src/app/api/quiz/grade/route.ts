@@ -54,7 +54,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   if (graded.correct) {
     return {
       student_message:
-        "Bra resonemang — det stämmer. Du använde materialet på ett tydligt sätt.",
+        "Bra resonemang — det stämmer. Du använde materialet på ett tydligt sätt. Då tar vi vidare.",
       evaluation: "correct",
       topic: "allmänt",
       next_action: "next_question",
