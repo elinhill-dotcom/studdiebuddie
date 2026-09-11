@@ -2,11 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { parseVocabPaste } from "@/lib/ai-quiz";
+import {
+  compressImageToDataUrl,
+  extractTextFromPdf,
+  readFileAsDataUrl,
+} from "@/lib/pdf";
 import { upsertVocabList } from "@/lib/store";
-import type { VocabList } from "@/lib/types";
+import type { VocabList, VocabPair } from "@/lib/types";
 
 export default function GlosorPage() {
   const { data, ready, refresh } = useAppData();
@@ -16,20 +21,104 @@ export default function GlosorPage() {
   const [languageFrom, setLanguageFrom] = useState("engelska");
   const [languageTo, setLanguageTo] = useState("svenska");
   const [paste, setPaste] = useState("");
+  const [imported, setImported] = useState<VocabPair[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
 
   if (!ready) return <p className="text-muted">Laddar…</p>;
 
+  const extractFromFile = async (file: File | null, kind: "image" | "pdf") => {
+    if (!file) return;
+    setError("");
+    setBusy(true);
+    try {
+      let photoDataUrl: string | undefined;
+      let pdfDataUrl: string | undefined;
+      let pdfFileName: string | undefined;
+      let extractedText = "";
+
+      if (kind === "pdf") {
+        if (file.size > 40_000_000) {
+          setError("PDF:en är för stor (max ca 40 MB).");
+          return;
+        }
+        const [dataUrl, text] = await Promise.all([
+          readFileAsDataUrl(file),
+          extractTextFromPdf(file).catch(() => ""),
+        ]);
+        pdfDataUrl = dataUrl;
+        pdfFileName = file.name;
+        extractedText = text;
+      } else {
+        if (!file.type.startsWith("image/")) {
+          setError("Välj en bild.");
+          return;
+        }
+        photoDataUrl = await compressImageToDataUrl(file);
+      }
+
+      const res = await fetch("/api/vocab/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photoDataUrl,
+          pdfDataUrl,
+          pdfFileName,
+          extractedText,
+          languageFrom,
+          languageTo,
+        }),
+      });
+      const json = (await res.json()) as {
+        pairs?: { term: string; translation: string }[];
+        languageFrom?: string;
+        languageTo?: string;
+        error?: string;
+      };
+      if (!res.ok || !json.pairs?.length) {
+        setError(json.error || "Kunde inte läsa glosorna.");
+        return;
+      }
+
+      const added = json.pairs.map((p) => ({
+        id: crypto.randomUUID(),
+        term: p.term,
+        translation: p.translation,
+      }));
+      setImported((prev) => [...prev, ...added]);
+      if (json.languageFrom) setLanguageFrom(json.languageFrom);
+      if (json.languageTo) setLanguageTo(json.languageTo);
+      if (!title.trim()) {
+        const base = file.name.replace(/\.[^.]+$/, "").trim();
+        setTitle(base || "Ny gloslista");
+      }
+    } catch {
+      setError("Kunde inte läsa filen. Försök igen.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const create = (e: React.FormEvent) => {
     e.preventDefault();
-    const pairs = parseVocabPaste(paste).map((p) => ({
+    const fromPaste = parseVocabPaste(paste).map((p) => ({
       id: crypto.randomUUID(),
       ...p,
     }));
-    if (!title.trim()) return;
+    const pairs = [...imported, ...fromPaste].filter(
+      (p) => p.term.trim() && p.translation.trim(),
+    );
+    if (!title.trim() && pairs.length === 0) {
+      setError("Ge listan ett namn eller ladda upp glosor.");
+      return;
+    }
     const now = new Date().toISOString();
     const list: VocabList = {
       id: crypto.randomUUID(),
-      title: title.trim(),
+      title: title.trim() || "Ny gloslista",
       languageFrom: languageFrom.trim() || "engelska",
       languageTo: languageTo.trim() || "svenska",
       pairs:
@@ -53,8 +142,8 @@ export default function GlosorPage() {
             Glosor
           </h1>
           <p className="mt-1 max-w-lg text-ink-soft">
-            Skapa gloslistor, ladda upp foto/PDF av listan, bocka i vilka ord du
-            vill öva — och kör förhör.
+            Skapa gloslistor direkt från foto eller PDF — sen bockar du i vilka
+            ord du vill öva.
           </p>
         </div>
         <button
@@ -96,21 +185,104 @@ export default function GlosorPage() {
               />
             </div>
           </div>
+
+          <div className="space-y-2 rounded-xl bg-white/70 p-3">
+            <p className="label mb-0">Ladda upp gloslista</p>
+            <p className="text-xs text-muted">
+              Ta foto, välj bild eller PDF — orden läses in direkt.
+            </p>
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+              onChange={(e) => {
+                void extractFromFile(e.target.files?.[0] ?? null, "image");
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={libraryRef}
+              type="file"
+              accept="image/*"
+              className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+              onChange={(e) => {
+                void extractFromFile(e.target.files?.[0] ?? null, "image");
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={pdfRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="fixed left-[-9999px] top-0 h-px w-px opacity-0"
+              onChange={(e) => {
+                void extractFromFile(e.target.files?.[0] ?? null, "pdf");
+                e.target.value = "";
+              }}
+            />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                className="btn-secondary py-2 text-sm"
+                disabled={busy}
+                onClick={() => cameraRef.current?.click()}
+              >
+                Ta foto
+              </button>
+              <button
+                type="button"
+                className="btn-secondary py-2 text-sm"
+                disabled={busy}
+                onClick={() => libraryRef.current?.click()}
+              >
+                Bildbibliotek
+              </button>
+              <button
+                type="button"
+                className="btn-secondary py-2 text-sm"
+                disabled={busy}
+                onClick={() => pdfRef.current?.click()}
+              >
+                Välj PDF
+              </button>
+            </div>
+            {busy && (
+              <p className="text-sm text-muted">Läser gloslistan…</p>
+            )}
+            {imported.length > 0 && (
+              <div className="rounded-lg bg-sage-soft/50 px-3 py-2 text-sm text-sage">
+                {imported.length} glosor inlästa
+                <button
+                  type="button"
+                  className="btn-ghost ml-2 text-xs"
+                  onClick={() => setImported([])}
+                >
+                  Rensa
+                </button>
+              </div>
+            )}
+          </div>
+
           <div>
-            <label className="label">Klistra in glosor (valfritt)</label>
+            <label className="label">Eller klistra in glosor</label>
             <textarea
-              className="input-field min-h-28 font-mono text-sm"
+              className="input-field min-h-24 font-mono text-sm"
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
               placeholder={"apple - äpple\nbeautiful - vacker\nfriend; vän"}
             />
             <p className="mt-1 text-xs text-muted">
-              En rad per glosa: ord - översättning. Du kan också ladda upp foto
-              eller PDF inne i listan efteråt.
+              En rad per glosa: ord - översättning
             </p>
           </div>
-          <button type="submit" className="btn-primary">
+
+          {error && <p className="text-sm text-danger">{error}</p>}
+
+          <button type="submit" className="btn-primary" disabled={busy}>
             Skapa lista
+            {imported.length > 0 ? ` (${imported.length} glosor)` : ""}
           </button>
         </form>
       )}
@@ -118,6 +290,15 @@ export default function GlosorPage() {
       {data.vocabLists.length === 0 ? (
         <div className="panel px-6 py-10 text-center">
           <p className="text-muted">Inga gloslistor ännu.</p>
+          {!showNew && (
+            <button
+              type="button"
+              className="btn-primary mt-3"
+              onClick={() => setShowNew(true)}
+            >
+              Ny gloslista
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
