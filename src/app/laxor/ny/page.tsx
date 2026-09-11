@@ -6,8 +6,9 @@ import Link from "next/link";
 import { SUBJECTS } from "@/lib/helpers";
 import { extractTextFromPdf, readFileAsDataUrl } from "@/lib/pdf";
 import type { Homework, Subject } from "@/lib/types";
-import { upsertHomework } from "@/lib/store";
+import { ensureHomeworkReminder, loadData, upsertCalendarEvent, upsertHomework } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
+import { TimeInput24 } from "@/components/TimeInput24";
 
 const MAX_IMAGE_BYTES = 2_500_000;
 const MAX_PDF_BYTES = 5_000_000;
@@ -24,7 +25,8 @@ export default function NyLaxaPage() {
   const [photoDataUrl, setPhotoDataUrl] = useState<string | undefined>();
   const [pdfDataUrl, setPdfDataUrl] = useState<string | undefined>();
   const [pdfFileName, setPdfFileName] = useState<string | undefined>();
-  const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState("09:00");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -96,6 +98,15 @@ export default function NyLaxaPage() {
       reminderEnabled,
     };
     upsertHomework(hw);
+    if (reminderEnabled) {
+      ensureHomeworkReminder(hw, reminderTime || "09:00");
+      const cal = loadData().calendarEvents.find(
+        (e) => e.homeworkId === hw.id && e.type === "homework",
+      );
+      if (cal) {
+        upsertCalendarEvent({ ...cal, time: reminderTime || "09:00" });
+      }
+    }
     notifyDataChanged();
     router.push(`/laxor/${hw.id}`);
   };
@@ -219,14 +230,29 @@ export default function NyLaxaPage() {
           />
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-ink-soft">
-          <input
-            type="checkbox"
-            checked={reminderEnabled}
-            onChange={(e) => setReminderEnabled(e.target.checked)}
-          />
-          Visa deadline i kalendern
-        </label>
+        <div className="space-y-2 rounded-xl bg-white/60 px-3 py-3">
+          <label className="flex items-center gap-2 text-sm text-ink-soft">
+            <input
+              type="checkbox"
+              checked={reminderEnabled}
+              onChange={(e) => setReminderEnabled(e.target.checked)}
+            />
+            Lägg till påminnelse (1 h innan)
+          </label>
+          {reminderEnabled && (
+            <div>
+              <label className="label">Tid för deadline</label>
+              <TimeInput24
+                value={reminderTime}
+                onChange={setReminderTime}
+                className="w-full"
+              />
+              <p className="mt-1 text-xs text-muted">
+                Påminnelsen skickas en timme innan den här tiden.
+              </p>
+            </div>
+          )}
+        </div>
 
         {error && <p className="text-sm text-danger">{error}</p>}
 

@@ -11,6 +11,7 @@ import type {
 import { SUBJECTS } from "@/lib/helpers";
 import {
   deleteCalendarEvent,
+  ensureHomeworkReminder,
   loadData,
   upsertCalendarEvent,
   upsertHomework,
@@ -178,19 +179,22 @@ export function HomeCalendar({
       const data = loadData();
       const hw = data.homeworks.find((h) => h.id === linkedHomeworkId);
       if (!hw) return;
-      upsertHomework({ ...hw, dueDate: selected });
+      const updated = {
+        ...hw,
+        dueDate: selected,
+        reminderEnabled: withReminder || hw.reminderEnabled,
+      };
+      upsertHomework(updated);
+      // Spara tid på kalenderhändelsen
+      const refreshed = loadData();
+      const cal = refreshed.calendarEvents.find(
+        (e) => e.homeworkId === hw.id && e.type === "homework",
+      );
+      if (cal && time) {
+        upsertCalendarEvent({ ...cal, time });
+      }
       if (withReminder) {
-        const base = new Date(`${selected}T${time || "09:00"}:00`);
-        upsertReminder({
-          id: crypto.randomUUID(),
-          title: `Läxa: ${hw.title}`,
-          message: `Deadline för “${hw.title}”.`,
-          at: new Date(base.getTime() - 60 * 60_000).toISOString(),
-          enabled: true,
-          notified: false,
-          homeworkId: hw.id,
-          createdAt: new Date().toISOString(),
-        });
+        ensureHomeworkReminder(updated, time || "09:00");
       }
       notifyDataChanged();
       onChange();

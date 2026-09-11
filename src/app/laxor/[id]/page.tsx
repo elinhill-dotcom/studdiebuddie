@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { dueLabel, statusLabel } from "@/lib/helpers";
-import { deleteHomework, upsertHomework } from "@/lib/store";
+import { deleteHomework, deleteReminder, ensureHomeworkReminder, loadData, upsertHomework } from "@/lib/store";
 import type { HomeworkStatus } from "@/lib/types";
 
 export default function LaxaDetailPage() {
@@ -35,6 +35,19 @@ export default function LaxaDetailPage() {
   const updateStatus = (s: HomeworkStatus) => {
     setStatus(s);
     upsertHomework({ ...hw, status: s });
+    notifyDataChanged();
+    refresh();
+  };
+
+  const toggleReminder = () => {
+    if (hw.reminderEnabled) {
+      const rem = loadData().reminders.filter((r) => r.homeworkId === hw.id);
+      for (const r of rem) deleteReminder(r.id);
+      upsertHomework({ ...hw, reminderEnabled: false });
+    } else {
+      upsertHomework({ ...hw, reminderEnabled: true });
+      ensureHomeworkReminder({ ...hw, reminderEnabled: true });
+    }
     notifyDataChanged();
     refresh();
   };
@@ -124,6 +137,15 @@ export default function LaxaDetailPage() {
             </button>
           ))}
         </div>
+
+        <label className="flex items-center gap-2 text-sm text-ink-soft">
+          <input
+            type="checkbox"
+            checked={hw.reminderEnabled}
+            onChange={toggleReminder}
+          />
+          Påminnelse 1 h innan deadline
+        </label>
 
         <div className="flex flex-wrap gap-3 pt-1">
           <Link href={`/forhor/start?homework=${hw.id}`} className="btn-primary">

@@ -169,7 +169,10 @@ export function upsertHomework(hw: Homework): AppData {
 }
 
 /** Skapa/uppdatera fristående kalenderhändelse för läxans datum */
-export function ensureHomeworkOnCalendar(hw: Homework): void {
+export function ensureHomeworkOnCalendar(
+  hw: Homework,
+  opts?: { time?: string },
+): void {
   const data = loadData();
   const existing = data.calendarEvents.find(
     (e) => e.homeworkId === hw.id && e.type === "homework",
@@ -182,7 +185,7 @@ export function ensureHomeworkOnCalendar(hw: Homework): void {
     subject: hw.subject,
     homeworkId: hw.id,
     notes: existing?.notes,
-    time: existing?.time,
+    time: opts?.time ?? existing?.time,
     createdAt: existing?.createdAt || new Date().toISOString(),
   };
   const eidx = data.calendarEvents.findIndex((e) => e.id === event.id);
@@ -192,19 +195,49 @@ export function ensureHomeworkOnCalendar(hw: Homework): void {
   cloudSync?.onCalendarUpsert?.(event);
 }
 
+/** Valfri påminnelse 1 h innan läxans deadline (skapar/uppdaterar en) */
+export function ensureHomeworkReminder(
+  hw: Homework,
+  time = "09:00",
+): Reminder {
+  const data = loadData();
+  const existing = data.reminders.find(
+    (r) => r.homeworkId === hw.id && r.enabled && !r.notified,
+  );
+  const base = new Date(`${hw.dueDate}T${time}:00`);
+  const reminder: Reminder = {
+    id: existing?.id || crypto.randomUUID(),
+    title: `Läxa: ${hw.title}`,
+    message: `Deadline för “${hw.title}”.`,
+    at: new Date(base.getTime() - 60 * 60_000).toISOString(),
+    enabled: true,
+    notified: false,
+    homeworkId: hw.id,
+    url: `/laxor/${hw.id}`,
+    createdAt: existing?.createdAt || new Date().toISOString(),
+  };
+  upsertReminder(reminder);
+  return reminder;
+}
+
 export function deleteHomework(id: string): AppData {
   const data = loadData();
   data.homeworks = data.homeworks.filter((h) => h.id !== id);
   const removedEvents = data.calendarEvents.filter(
     (e) => e.homeworkId === id && e.type === "homework",
   );
+  const removedReminders = data.reminders.filter((r) => r.homeworkId === id);
   data.calendarEvents = data.calendarEvents.filter(
     (e) => !(e.homeworkId === id && e.type === "homework"),
   );
+  data.reminders = data.reminders.filter((r) => r.homeworkId !== id);
   saveData(data);
   cloudSync?.onHomeworkDelete?.(id);
   for (const ev of removedEvents) {
     cloudSync?.onCalendarDelete?.(ev.id);
+  }
+  for (const r of removedReminders) {
+    cloudSync?.onReminderDelete?.(r.id);
   }
   return data;
 }
