@@ -15,6 +15,32 @@ import { DEFAULT_HOME_MODULES } from "./types";
 
 const STORAGE_KEY = "studdiebuddie-v2";
 
+export type CloudSyncHandlers = {
+  onHomeworkUpsert?: (hw: Homework) => void;
+  onHomeworkDelete?: (id: string) => void;
+  onNoteUpsert?: (note: Note) => void;
+  onNoteDelete?: (id: string) => void;
+  onCalendarUpsert?: (event: CalendarEvent) => void;
+  onCalendarDelete?: (id: string) => void;
+  onReminderUpsert?: (reminder: Reminder) => void;
+  onReminderDelete?: (id: string) => void;
+  onVocabUpsert?: (list: VocabList) => void;
+  onVocabDelete?: (id: string) => void;
+  onQuizUpsert?: (session: QuizSession) => void;
+  onExamUpsert?: (result: ExamResult) => void;
+  onProfileChange?: (
+    name: string,
+    modules: string[],
+    notifications: boolean,
+  ) => void;
+};
+
+let cloudSync: CloudSyncHandlers | null = null;
+
+export function registerCloudSync(handlers: CloudSyncHandlers | null) {
+  cloudSync = handlers;
+}
+
 export const emptyData = (): AppData => ({
   homeworks: [],
   notes: [],
@@ -71,6 +97,11 @@ export function setHomeModules(modules: HomeModuleId[]): AppData {
   const data = loadData();
   data.homeModules = modules;
   saveData(data);
+  cloudSync?.onProfileChange?.(
+    data.profileName,
+    data.homeModules,
+    data.notificationsEnabled,
+  );
   return data;
 }
 
@@ -78,6 +109,11 @@ export function setProfileName(name: string): AppData {
   const data = loadData();
   data.profileName = name.trim() || "Buddie";
   saveData(data);
+  cloudSync?.onProfileChange?.(
+    data.profileName,
+    data.homeModules,
+    data.notificationsEnabled,
+  );
   return data;
 }
 
@@ -92,6 +128,7 @@ export function upsertHomework(hw: Homework): AppData {
   if (idx >= 0) data.homeworks[idx] = hw;
   else data.homeworks.unshift(hw);
   saveData(data);
+  cloudSync?.onHomeworkUpsert?.(hw);
   return data;
 }
 
@@ -99,6 +136,7 @@ export function deleteHomework(id: string): AppData {
   const data = loadData();
   data.homeworks = data.homeworks.filter((h) => h.id !== id);
   saveData(data);
+  cloudSync?.onHomeworkDelete?.(id);
   return data;
 }
 
@@ -108,6 +146,7 @@ export function upsertNote(note: Note): AppData {
   if (idx >= 0) data.notes[idx] = note;
   else data.notes.unshift(note);
   saveData(data);
+  cloudSync?.onNoteUpsert?.(note);
   return data;
 }
 
@@ -115,6 +154,7 @@ export function deleteNote(id: string): AppData {
   const data = loadData();
   data.notes = data.notes.filter((n) => n.id !== id);
   saveData(data);
+  cloudSync?.onNoteDelete?.(id);
   return data;
 }
 
@@ -124,6 +164,7 @@ export function upsertQuiz(session: QuizSession): AppData {
   if (idx >= 0) data.quizSessions[idx] = session;
   else data.quizSessions.unshift(session);
   saveData(data);
+  cloudSync?.onQuizUpsert?.(session);
   return data;
 }
 
@@ -133,6 +174,7 @@ export function upsertExam(result: ExamResult): AppData {
   if (idx >= 0) data.examResults[idx] = result;
   else data.examResults.unshift(result);
   saveData(data);
+  cloudSync?.onExamUpsert?.(result);
   return data;
 }
 
@@ -142,6 +184,7 @@ export function upsertCalendarEvent(event: CalendarEvent): AppData {
   if (idx >= 0) data.calendarEvents[idx] = event;
   else data.calendarEvents.unshift(event);
   saveData(data);
+  cloudSync?.onCalendarUpsert?.(event);
   return data;
 }
 
@@ -150,6 +193,7 @@ export function deleteCalendarEvent(id: string): AppData {
   data.calendarEvents = data.calendarEvents.filter((e) => e.id !== id);
   data.reminders = data.reminders.filter((r) => r.eventId !== id);
   saveData(data);
+  cloudSync?.onCalendarDelete?.(id);
   return data;
 }
 
@@ -159,6 +203,7 @@ export function upsertReminder(reminder: Reminder): AppData {
   if (idx >= 0) data.reminders[idx] = reminder;
   else data.reminders.unshift(reminder);
   saveData(data);
+  cloudSync?.onReminderUpsert?.(reminder);
   return data;
 }
 
@@ -166,6 +211,7 @@ export function deleteReminder(id: string): AppData {
   const data = loadData();
   data.reminders = data.reminders.filter((r) => r.id !== id);
   saveData(data);
+  cloudSync?.onReminderDelete?.(id);
   return data;
 }
 
@@ -173,6 +219,11 @@ export function setNotificationsEnabled(enabled: boolean): AppData {
   const data = loadData();
   data.notificationsEnabled = enabled;
   saveData(data);
+  cloudSync?.onProfileChange?.(
+    data.profileName,
+    data.homeModules,
+    data.notificationsEnabled,
+  );
   return data;
 }
 
@@ -182,6 +233,7 @@ export function upsertVocabList(list: VocabList): AppData {
   if (idx >= 0) data.vocabLists[idx] = list;
   else data.vocabLists.unshift(list);
   saveData(data);
+  cloudSync?.onVocabUpsert?.(list);
   return data;
 }
 
@@ -189,6 +241,7 @@ export function deleteVocabList(id: string): AppData {
   const data = loadData();
   data.vocabLists = data.vocabLists.filter((v) => v.id !== id);
   saveData(data);
+  cloudSync?.onVocabDelete?.(id);
   return data;
 }
 

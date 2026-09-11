@@ -4,8 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { seedDemoIfEmpty } from "@/lib/store";
+import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import { ReminderWatcher } from "@/components/ReminderWatcher";
+import { seedDemoIfEmpty } from "@/lib/store";
 
 const links = [
   { href: "/", label: "Hem", tone: "bg-sage-soft text-sage" },
@@ -18,12 +19,13 @@ const links = [
   { href: "/resultat", label: "Resultat", tone: "bg-sky-soft text-sky" },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { user, loading, syncing } = useAuth();
 
   useEffect(() => {
-    seedDemoIfEmpty();
-  }, []);
+    if (!loading && !user) seedDemoIfEmpty();
+  }, [loading, user]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -43,6 +45,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="h-11 w-auto sm:h-12"
                 priority
               />
+            </Link>
+            <Link
+              href="/konto"
+              className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
+            >
+              {loading ? "…" : user ? (syncing ? "Synkar…" : "Konto") : "Logga in"}
             </Link>
           </div>
 
@@ -74,5 +82,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </main>
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <ShellInner>{children}</ShellInner>
+    </AuthProvider>
   );
 }

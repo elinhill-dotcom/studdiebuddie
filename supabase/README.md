@@ -1,0 +1,25 @@
+# Studdiebuddie × Supabase
+
+## 1. Skapa projekt
+1. Gå till https://supabase.com och skapa ett projekt
+2. Under **Project Settings → API** kopiera:
+   - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
+   - `anon` `public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+## 2. Kör databasen
+1. Öppna **SQL Editor** i Supabase
+2. Klistra in hela innehållet från `schema.sql` och kör det
+3. Det skapar tabeller, RLS-policies och storage-bucket `homework-photos`
+
+## 3. Auth-inställningar
+1. **Authentication → Providers**: behåll Email på
+2. För enklare test: **Authentication → Providers → Email** → stäng av "Confirm email" tillfälligt
+3. **Authentication → URL Configuration**:
+   - Site URL: `http://localhost:3000`
+   - Redirect URLs: `http://localhost:3000/auth/callback`
+
+## 4. Appen
+Lägg nycklarna i `.env.local` och starta om `npm run dev`.
+Öppna **Logga in** i headern (`/konto`).
+
+När du är inloggad sparas läxor (inkl. foton), anteckningar, kalender, glosor m.m. automatiskt i molnet.
