@@ -251,13 +251,56 @@ function GloslistaEditor({ initialList }: { initialList: VocabList }) {
       </Link>
 
       <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2"><div><p className="label">En liten spelpaus som gör skillnad</p><h1 className="font-display text-3xl">Spela med dina glosor</h1></div><span className="tag">{selectedCount} ord valda</span></div>
-        <div className="grid gap-3 sm:grid-cols-3">{VOCAB_GAMES.map(game => <button key={game.id} className={`game-picker game-${game.tint}`} disabled={selectedCount === 0 || busy} onClick={() => { save(); router.push(`/glosor/${id}/spel?game=${game.id}&words=${[...selected].join(",")}`); }}>
-          <span className="game-symbol" aria-hidden>{game.icon}</span><span className="font-display mt-4 block text-2xl">{game.name}</span><span className="mt-2 block text-sm text-ink-soft">{game.description}</span><span className="mt-5 block text-sm font-semibold">Spela →</span>
-        </button>)}</div>
-        {!selectedCount && <p className="text-sm text-muted">Lägg till eller välj glosor nedan för att öppna spelen.</p>}
-        <p className="text-sm text-muted">{data.quizSessions.filter(s => s.vocabListId === id && s.finishedAt).length} avslutade träningspass med den här listan.</p>
-        <Link className="text-sm text-sage underline" href={`/paminnelser?vocab=${id}`}>Påminn mig att träna de här glosorna</Link>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="label">Öva som du vill</p>
+            <h1 className="font-display text-3xl">Glosförhör och spel</h1>
+          </div>
+          <span className="tag">{selectedCount} ord valda</span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            className="game-picker game-coral"
+            disabled={selectedCount === 0 || busy}
+            onClick={startQuiz}
+          >
+            <span className="game-symbol" aria-hidden>?</span>
+            <span className="font-display mt-4 block text-2xl">Glosförhör</span>
+            <span className="mt-2 block text-sm text-ink-soft">
+              Vanligt förhör — skriv svaret, en glosa i taget.
+            </span>
+            <span className="mt-5 block text-sm font-semibold">Starta →</span>
+          </button>
+          {VOCAB_GAMES.map((game) => (
+            <button
+              key={game.id}
+              type="button"
+              className={`game-picker game-${game.tint}`}
+              disabled={selectedCount === 0 || busy}
+              onClick={() => {
+                save();
+                router.push(`/glosor/${id}/spel?game=${game.id}&words=${[...selected].join(",")}`);
+              }}
+            >
+              <span className="game-symbol" aria-hidden>{game.icon}</span>
+              <span className="font-display mt-4 block text-2xl">{game.name}</span>
+              <span className="mt-2 block text-sm text-ink-soft">{game.description}</span>
+              <span className="mt-5 block text-sm font-semibold">Spela →</span>
+            </button>
+          ))}
+        </div>
+        {!selectedCount && (
+          <p className="text-sm text-muted">
+            Lägg till eller välj glosor nedan för att öppna förhör och spel.
+          </p>
+        )}
+        <p className="text-sm text-muted">
+          {data.quizSessions.filter((s) => s.vocabListId === id && s.finishedAt).length} avslutade träningspass med den här listan.
+        </p>
+        <Link className="text-sm text-sage underline" href={`/paminnelser?vocab=${id}`}>
+          Påminn mig att träna de här glosorna
+        </Link>
       </section>
 
       {linkedHomework.map(hw => <section className="panel space-y-3 p-5" key={hw.id}>

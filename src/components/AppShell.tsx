@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import { ReminderWatcher } from "@/components/ReminderWatcher";
@@ -21,9 +22,23 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, syncing, signOut } = useAuth();
+  const [navOpen, setNavOpen] = useState(false);
   const isAdmin = pathname.startsWith("/admin");
   const showAppNav = Boolean(user) && !isAdmin;
   const section = links.find(link => pathname === link.href || pathname.startsWith(`${link.href}/`));
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navOpen]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -47,7 +62,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             </Link>
             <div className="flex items-center gap-2">
               {!isAdmin && (
-                <>
+                <div className="hidden items-center gap-2 md:flex">
                   <Link
                     href="/konto"
                     className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
@@ -73,37 +88,107 @@ function ShellInner({ children }: { children: React.ReactNode }) {
                       Logga ut
                     </button>
                   )}
-                </>
+                </div>
+              )}
+              {!showAppNav && !isAdmin && (
+                <Link
+                  href="/konto"
+                  className="nav-pill bg-white/70 text-ink-soft hover:bg-white md:hidden"
+                >
+                  {loading ? "…" : user ? "Konto" : "Logga in"}
+                </Link>
+              )}
+              {showAppNav && (
+                <button
+                  type="button"
+                  className="nav-pill bg-white/70 text-ink hover:bg-white md:hidden"
+                  aria-expanded={navOpen}
+                  aria-controls="mobile-nav"
+                  onClick={() => setNavOpen((open) => !open)}
+                >
+                  {navOpen ? "Stäng" : "Meny"}
+                </button>
               )}
             </div>
           </div>
 
           {showAppNav && (
-            <nav
-              className="flex flex-wrap items-center gap-1.5"
-              aria-label="Huvudmeny"
-            >
-              {links.map((l) => {
-                const active =
-                  l.href === "/hem"
-                    ? pathname === "/hem"
-                    : pathname.startsWith(l.href);
-                return (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    aria-current={active ? "page" : undefined}
-                    className={`nav-pill ${
-                      active
-                        ? `${l.tone} ring-2 ring-current font-bold`
-                        : "bg-white/70 text-ink-soft hover:bg-white"
-                    }`}
+            <>
+              <nav
+                className="hidden flex-wrap items-center gap-1.5 md:flex"
+                aria-label="Huvudmeny"
+              >
+                {links.map((l) => {
+                  const active =
+                    l.href === "/hem"
+                      ? pathname === "/hem"
+                      : pathname.startsWith(l.href);
+                  return (
+                    <Link
+                      key={l.href}
+                      href={l.href}
+                      aria-current={active ? "page" : undefined}
+                      className={`nav-pill ${
+                        active
+                          ? `${l.tone} ring-2 ring-current font-bold`
+                          : "bg-white/70 text-ink-soft hover:bg-white"
+                      }`}
+                    >
+                      {l.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              {navOpen && (
+                <div id="mobile-nav" className="space-y-2 md:hidden">
+                  <nav
+                    className="grid grid-cols-2 gap-2"
+                    aria-label="Huvudmeny"
                   >
-                    {l.label}
-                  </Link>
-                );
-              })}
-            </nav>
+                    {links.map((l) => {
+                      const active =
+                        l.href === "/hem"
+                          ? pathname === "/hem"
+                          : pathname.startsWith(l.href);
+                      return (
+                        <Link
+                          key={l.href}
+                          href={l.href}
+                          aria-current={active ? "page" : undefined}
+                          className={`nav-pill min-h-11 justify-center px-3 text-sm ${
+                            active
+                              ? `${l.tone} ring-2 ring-current font-bold`
+                              : "bg-white/70 text-ink-soft hover:bg-white"
+                          }`}
+                        >
+                          {l.label}
+                        </Link>
+                      );
+                    })}
+                  </nav>
+                  <div className="flex gap-2">
+                    <Link
+                      href="/konto"
+                      className="nav-pill flex-1 bg-white/70 text-ink-soft hover:bg-white"
+                    >
+                      {syncing ? "Synkar…" : "Konto"}
+                    </Link>
+                    <button
+                      type="button"
+                      className="nav-pill flex-1 bg-coral-soft/80 text-coral hover:bg-coral-soft"
+                      onClick={async () => {
+                        await signOut();
+                        router.push("/");
+                        router.refresh();
+                      }}
+                    >
+                      Logga ut
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </header>

@@ -5,6 +5,7 @@
 .game-sage { --game-accent: var(--sage); --game-soft: var(--sage-soft); }
 .game-lilac { --game-accent: var(--lilac); --game-soft: var(--lilac-soft); }
 .game-sky { --game-accent: var(--sky); --game-soft: var(--sky-soft); }
+.game-coral { --game-accent: var(--coral); --game-soft: var(--coral-soft); }
 .game-picker, .game-hero { border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(145deg, white, var(--game-soft)); padding: 24px; }
 .game-picker { text-align: left; transition: transform .22s, box-shadow .22s; }
 .game-picker:hover:not(:disabled) { transform: translateY(-5px); box-shadow: 0 14px 30px #1a242012; }

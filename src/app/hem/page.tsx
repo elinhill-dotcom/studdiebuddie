@@ -127,7 +127,7 @@ export default function HomePage() {
           {[
             { href: "/laxor/ny", label: "Lägg till läxa", hint: "Fota eller skriv in din läxa.", tint: "panel-tint-sage", accent: "text-sage" },
             { href: "/forhor", label: "Träna läxan", hint: "Chatta, gör övningsprov eller frågekort.", tint: "panel-tint-coral", accent: "text-coral" },
-            { href: "/glosor", label: "Spela med glosor", hint: "Lär dig ord med tre olika spel.", tint: "panel-tint-lilac", accent: "text-lilac" },
+            { href: "/glosor", label: "Spela med glosor", hint: "Vanligt glosförhör och tre spel.", tint: "panel-tint-lilac", accent: "text-lilac" },
             { href: "/paminnelser", label: "Påminn mig", hint: "Välj vad du vill komma ihåg och när.", tint: "panel-tint-brass", accent: "text-brass" },
           ].map((s) => (
             <Link
