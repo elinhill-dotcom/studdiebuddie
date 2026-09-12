@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { generateVocabQuestions, parseVocabPaste } from "@/lib/ai-quiz";
 import {
@@ -15,20 +15,34 @@ import {
   loadData,
   upsertQuiz,
   upsertVocabList,
+  upsertHomework,
 } from "@/lib/store";
-import type { QuizSession, VocabPair } from "@/lib/types";
+import type { QuizSession, VocabPair, VocabList } from "@/lib/types";
+import { VOCAB_GAMES } from "@/lib/vocab-games";
+import { HomeworkAttachments, attachmentValueFromHomework } from "@/components/HomeworkAttachments";
+import { withMirroredAttachmentFields } from "@/lib/attachments";
+import { extractHomeworkVocab } from "@/lib/vocab-material";
 
 export default function GloslistaPage() {
   const { id } = useParams<{ id: string }>();
+  const { data, ready } = useAppData();
+  if (!ready) return <p>Laddar…</p>;
+  const list = data.vocabLists.find(v => v.id === id);
+  if (!list) return <p>Listan hittades inte. <Link href="/glosor">Tillbaka</Link></p>;
+  return <GloslistaEditor key={id} initialList={list} />;
+}
+
+function GloslistaEditor({ initialList }: { initialList: VocabList }) {
+  const id = initialList.id;
   const { data, ready, refresh } = useAppData();
   const router = useRouter();
-  const list = data.vocabLists.find((v) => v.id === id);
+  const list = data.vocabLists.find((v) => v.id === id) || initialList;
 
-  const [title, setTitle] = useState("");
-  const [languageFrom, setLanguageFrom] = useState("");
-  const [languageTo, setLanguageTo] = useState("");
-  const [pairs, setPairs] = useState<VocabPair[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [title, setTitle] = useState(initialList.title);
+  const [languageFrom, setLanguageFrom] = useState(initialList.languageFrom);
+  const [languageTo, setLanguageTo] = useState(initialList.languageTo);
+  const [pairs, setPairs] = useState<VocabPair[]>(initialList.pairs);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialList.pairs.filter(p => p.term.trim() && p.translation.trim()).map(p => p.id)));
   const [paste, setPaste] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,22 +50,8 @@ export default function GloslistaPage() {
   const libraryRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (list) {
-      setTitle(list.title);
-      setLanguageFrom(list.languageFrom);
-      setLanguageTo(list.languageTo);
-      setPairs(list.pairs);
-      // Alla kompletta glosor förvalda
-      setSelected(
-        new Set(
-          list.pairs
-            .filter((p) => p.term.trim() && p.translation.trim())
-            .map((p) => p.id),
-        ),
-      );
-    }
-  }, [list]);
+  const linkedIds = new Set(data.reminders.filter(r => r.url === `/glosor/${id}`).map(r => r.homeworkId));
+  const linkedHomework = data.homeworks.filter(h => linkedIds.has(h.id));
 
   const completePairs = useMemo(
     () => pairs.filter((p) => p.term.trim() && p.translation.trim()),
@@ -245,10 +245,33 @@ export default function GloslistaPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl space-y-5">
+    <div className="mx-auto max-w-3xl space-y-5">
       <Link href="/glosor" className="text-sm text-muted hover:text-ink">
         ← Alla gloslistor
       </Link>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2"><div><p className="label">En liten spelpaus som gör skillnad</p><h1 className="font-display text-3xl">Spela med dina glosor</h1></div><span className="tag">{selectedCount} ord valda</span></div>
+        <div className="grid gap-3 sm:grid-cols-3">{VOCAB_GAMES.map(game => <button key={game.id} className={`game-picker game-${game.tint}`} disabled={selectedCount === 0 || busy} onClick={() => { save(); router.push(`/glosor/${id}/spel?game=${game.id}&words=${[...selected].join(",")}`); }}>
+          <span className="game-symbol" aria-hidden>{game.icon}</span><span className="font-display mt-4 block text-2xl">{game.name}</span><span className="mt-2 block text-sm text-ink-soft">{game.description}</span><span className="mt-5 block text-sm font-semibold">Spela →</span>
+        </button>)}</div>
+        {!selectedCount && <p className="text-sm text-muted">Lägg till eller välj glosor nedan för att öppna spelen.</p>}
+        <p className="text-sm text-muted">{data.quizSessions.filter(s => s.vocabListId === id && s.finishedAt).length} avslutade träningspass med den här listan.</p>
+        <Link className="text-sm text-sage underline" href={`/paminnelser?vocab=${id}`}>Påminn mig att träna de här glosorna</Link>
+      </section>
+
+      {linkedHomework.map(hw => <section className="panel space-y-3 p-5" key={hw.id}>
+        <h2 className="font-display text-xl">Material till {hw.title}</h2><p className="text-sm text-muted">Fota pappret eller lägg till bild/PDF nu eller senare. Materialet sparas på den kopplade läxan.</p>
+        <HomeworkAttachments value={attachmentValueFromHomework(hw)} onChange={patch => { upsertHomework(withMirroredAttachmentFields({ ...hw, ...patch })); notifyDataChanged(); }} />
+        <button className="btn-secondary" disabled={busy} onClick={async () => {
+          setBusy(true); setError("");
+          try { const added = await extractHomeworkVocab(hw, languageFrom, languageTo); const seen = new Set(pairs.map(p => `${p.term.toLocaleLowerCase()}|${p.translation.toLocaleLowerCase()}`)); const fresh = added.filter(p => !seen.has(`${p.term.toLocaleLowerCase()}|${p.translation.toLocaleLowerCase()}`)); const next = [...pairs.filter(p => p.term.trim() || p.translation.trim()), ...fresh]; setPairs(next); setSelected(s => new Set([...s, ...fresh.map(p => p.id)])); save(next); }
+          catch (e) { setError(e instanceof Error ? e.message : "Kunde inte läsa glosorna."); }
+          finally { setBusy(false); }
+        }}>{busy ? "Läser materialet…" : "Läs in glosor från materialet"}</button>
+        <Link href={`/laxor/${hw.id}`} className="ml-3 text-sm text-sage underline">Öppna läxan</Link>
+        {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+      </section>)}
 
       <div className="panel space-y-4 p-5">
         <input

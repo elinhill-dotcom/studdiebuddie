@@ -10,6 +10,8 @@ import {
 } from "@/lib/store";
 import { notifyDataChanged } from "@/components/useAppData";
 import { TimeInput24 } from "@/components/TimeInput24";
+import { ReminderTimingPicker } from "./ReminderTimingPicker";
+import { reminderAt, type ReminderTiming } from "@/lib/reminder-time";
 import {
   canUseNotifications,
   requestNotificationPermission,
@@ -59,6 +61,8 @@ export function ExamPlanner({
   const [studyDays, setStudyDays] = useState<string[]>([]);
   const [dayTimes, setDayTimes] = useState<Record<string, string>>({});
   const [wantPush, setWantPush] = useState(true);
+  const [examReminder, setExamReminder] = useState<ReminderTiming>({ choice: "60", date: defaultExamDate, time: "17:00" });
+  const [studyReminder, setStudyReminder] = useState<ReminderTiming>({ choice: "0", date: "", time: "17:00" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -113,6 +117,12 @@ export function ExamPlanner({
       setError("Kryssa i minst en pluggdag.");
       return;
     }
+    const examReminderAt = reminderAt(examDate, examTime || "09:00", examReminder);
+    const studyReminderTimes = studyDays.map(day => reminderAt(day, dayTimes[day] || studyTime, studyReminder));
+    if (wantPush && [examReminderAt, ...studyReminderTimes].some(at => !at || Date.parse(at) <= Date.now())) {
+      setError("En påminnelse hamnar i dåtid. Välj en senare tid, färre minuter i förväg eller ta bort den passerade pluggdagen.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -138,14 +148,13 @@ export function ExamPlanner({
       };
       upsertCalendarEvent(exam);
 
-      // Påminnelse 1 h innan provet
+      // Påminnelse enligt elevens val
       if (wantPush) {
-        const examAt = new Date(`${examDate}T${examTime || "09:00"}:00`);
         upsertReminder({
           id: crypto.randomUUID(),
           title: `Prov: ${exam.title}`,
-          message: `Provet “${exam.title}” börjar snart.`,
-          at: new Date(examAt.getTime() - 60 * 60_000).toISOString(),
+          message: `Kom ihåg provet “${exam.title}” den ${examDate} kl. ${examTime}.`,
+          at: examReminderAt!,
           enabled: true,
           notified: false,
           eventId: examId,
@@ -177,7 +186,7 @@ export function ExamPlanner({
             id: crypto.randomUUID(),
             title: `Dags att plugga: ${title.trim()}`,
             message: `Öva inför provet — öppna förhöret nu.`,
-            at: new Date(`${day}T${time}:00`).toISOString(),
+            at: reminderAt(day, time, studyReminder)!,
             enabled: true,
             notified: false,
             eventId: studyId,
@@ -338,8 +347,13 @@ export function ExamPlanner({
           checked={wantPush}
           onChange={(e) => setWantPush(e.target.checked)}
         />
-        Skicka pushpåminnelse i mobilen vid pluggtid (och 1 h innan prov)
+        Påminn mig om provet och pluggpassen
       </label>
+      {wantPush && <div className="space-y-2">
+        <ReminderTimingPicker label="Påminnelse inför provet" value={examReminder} onChange={setExamReminder} eventDate={examDate} eventTime={examTime} />
+        <ReminderTimingPicker label="Påminnelse inför varje pluggpass" value={studyReminder} onChange={setStudyReminder} eventDate={studyDays[0] || examDate} eventTime={dayTimes[studyDays[0]] || studyTime} allowCustom={false} />
+        <p className="text-xs text-muted">Samma framförhållning gäller varje pluggpass. Efteråt kan du ändra varje påminnelse separat i kalendern.</p>
+      </div>}
 
       {error && <p className="text-xs text-danger">{error}</p>}
 

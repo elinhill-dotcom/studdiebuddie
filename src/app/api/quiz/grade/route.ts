@@ -18,6 +18,7 @@ type Body = {
   material?: string;
   /** Tidigare elevsvar på samma fråga (för att undvika loop) */
   priorAnswers?: string[];
+  previousFeedback?: string;
 };
 
 /** Kort fördjupning efter rätt svar (lokal fallback utan OpenAI) */
@@ -166,6 +167,7 @@ export async function POST(req: Request) {
     expectedAnswer: body.expectedAnswer,
     userAnswer: body.userAnswer,
     priorAnswers,
+    previousFeedback: body.previousFeedback,
     tip: body.tip,
     material: body.material,
     attemptCount: body.attemptCount,

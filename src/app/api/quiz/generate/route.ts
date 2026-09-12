@@ -15,6 +15,7 @@ export const maxDuration = 60;
 type Body = {
   homework: Homework;
   count?: number;
+  format?: "chat" | "exam" | "flashcards";
 };
 
 function withIds(
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
     const ai = await tutorGenerateQuestions({
       materialText: materialBlock(hw),
       count,
+      format: body.format,
       photoDataUrl: hw.photoDataUrl,
       pdfDataUrl: hw.pdfDataUrl,
       pdfFileName: hw.pdfFileName,

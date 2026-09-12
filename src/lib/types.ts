@@ -66,6 +66,7 @@ export interface Note {
 
 export interface QuizQuestion {
   id: string;
+  homeworkId?: string;
   prompt: string;
   expectedAnswer: string;
   tip?: string;
@@ -78,13 +79,17 @@ export interface QuizAttemptAnswer {
   userAnswer: string;
   correct: boolean;
   feedback?: string;
+  attempts?: number;
+  needsPractice?: boolean;
+  pending?: boolean;
+  priorAnswers?: string[];
 }
 
 export interface QuizSession {
   id: string;
   homeworkIds: string[];
   vocabListId?: string;
-  mode: "single" | "retry" | "summary" | "vocab";
+  mode: "single" | "retry" | "summary" | "vocab" | "exam" | "flashcards";
   title: string;
   questions: QuizQuestion[];
   answers: QuizAttemptAnswer[];

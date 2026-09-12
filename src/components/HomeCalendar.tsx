@@ -24,6 +24,9 @@ import { ExamPlanner } from "@/components/ExamPlanner";
 import { HomeworkAttachments } from "@/components/HomeworkAttachments";
 import { TimeInput24 } from "@/components/TimeInput24";
 import Link from "next/link";
+import { ReminderTimingPicker } from "./ReminderTimingPicker";
+import { reminderAt, type ReminderTiming } from "@/lib/reminder-time";
+import { CalendarReminderEditor } from "./CalendarReminderEditor";
 
 const WEEKDAYS = ["M", "T", "O", "T", "F", "L", "S"];
 
@@ -97,6 +100,8 @@ export function HomeCalendar({
   const [time, setTime] = useState("09:00");
   const [subject, setSubject] = useState<Subject>("Matematik");
   const [withReminder, setWithReminder] = useState(true);
+  const [reminderTiming, setReminderTiming] = useState<ReminderTiming>({ choice: "60", date: "", time: "17:00" });
+  const [formError, setFormError] = useState("");
   const [linkedHomeworkId, setLinkedHomeworkId] = useState("");
   const [homeworkMode, setHomeworkMode] = useState<"new" | "existing">("new");
   const [description, setDescription] = useState("");
@@ -185,12 +190,20 @@ export function HomeCalendar({
     setSubject("Matematik");
     setTime(t === "study" ? "17:00" : "09:00");
     setWithReminder(true);
+    setReminderTiming({ choice: "60", date: selected, time: "17:00" });
+    setFormError("");
     setShowExamPlan(false);
     setShowForm(true);
   };
 
   const saveEvent = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError("");
+    const at = withReminder ? reminderAt(selected, time || "09:00", reminderTiming) : null;
+    if (withReminder && (!at || Date.parse(at) <= Date.now())) {
+      setFormError("Välj ett datum och klockslag för påminnelsen som ligger framåt i tiden, eller stäng av påminnelsen.");
+      return;
+    }
 
     // Ny läxa direkt från kalendern
     if (type === "homework" && homeworkMode === "new") {
@@ -222,7 +235,7 @@ export function HomeCalendar({
         upsertCalendarEvent({ ...cal, time });
       }
       if (withReminder) {
-        ensureHomeworkReminder(hw, time || "09:00");
+        ensureHomeworkReminder(hw, time || "09:00", at!);
       }
       notifyDataChanged();
       onChange();
@@ -241,7 +254,7 @@ export function HomeCalendar({
       const updated = {
         ...hw,
         dueDate: selected,
-        reminderEnabled: withReminder || hw.reminderEnabled,
+        reminderEnabled: withReminder,
       };
       upsertHomework(updated);
       const refreshed = loadData();
@@ -252,7 +265,9 @@ export function HomeCalendar({
         upsertCalendarEvent({ ...cal, time });
       }
       if (withReminder) {
-        ensureHomeworkReminder(updated, time || "09:00");
+        ensureHomeworkReminder(updated, time || "09:00", at!);
+      } else {
+        for (const r of loadData().reminders.filter(r => r.homeworkId === hw.id && r.url === `/laxor/${hw.id}`)) upsertReminder({ ...r, enabled: false });
       }
       notifyDataChanged();
       onChange();
@@ -273,7 +288,6 @@ export function HomeCalendar({
     };
     upsertCalendarEvent(event);
     if (withReminder) {
-      const base = new Date(`${selected}T${time || "09:00"}:00`);
       const label =
         type === "exam"
           ? `Prov: ${event.title}`
@@ -284,7 +298,7 @@ export function HomeCalendar({
         id: crypto.randomUUID(),
         title: label,
         message: `Dags för ${event.title}.`,
-        at: new Date(base.getTime() - 60 * 60_000).toISOString(),
+        at: at!,
         enabled: true,
         notified: false,
         eventId: event.id,
@@ -310,6 +324,7 @@ export function HomeCalendar({
           <button
             type="button"
             className="btn-ghost px-2 text-sm"
+            aria-label="Föregående månad"
             onClick={() =>
               setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))
             }
@@ -330,6 +345,7 @@ export function HomeCalendar({
           <button
             type="button"
             className="btn-ghost px-2 text-sm"
+            aria-label="Nästa månad"
             onClick={() =>
               setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))
             }
@@ -361,6 +377,8 @@ export function HomeCalendar({
               <button
                 key={cell.key}
                 type="button"
+                aria-pressed={isSelected}
+                aria-label={`${new Date(cell.key + "T12:00:00").toLocaleDateString("sv-SE", { dateStyle: "full" })}${hasMarks ? ", har bokningar eller påminnelser" : ""}`}
                 onClick={() => {
                   setSelected(cell.key);
                   setShowForm(false);
@@ -481,6 +499,7 @@ export function HomeCalendar({
                     Starta läxförhör →
                   </Link>
                 )}
+                <CalendarReminderEditor event={ev} reminder={reminders.find(r => r.eventId === ev.id || (!r.eventId && r.homeworkId === ev.homeworkId && r.url === `/laxor/${ev.homeworkId}` && homeworks.some(h => h.id === ev.homeworkId && h.dueDate === ev.date)))} onChange={onChange} />
             </div>
           );
         })}
@@ -502,6 +521,8 @@ export function HomeCalendar({
           >
             <span className="tag mr-1.5 bg-lilac-soft text-lilac">Påminnelse</span>
             <span className="font-medium">{r.title}</span>
+            <span className="ml-2 text-xs text-muted">{new Date(r.at).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}</span>
+            <Link href="/paminnelser" className="ml-2 text-xs text-sage underline">Ändra</Link>
           </div>
         ))}
 
@@ -536,6 +557,7 @@ export function HomeCalendar({
             >
               Planera pluggdagar inför prov
             </button>
+            <Link href={`/paminnelser?new=vocab&date=${selected}`} className="btn-secondary w-full py-1.5 text-center text-sm">+ Glosor & påminnelse</Link>
           </div>
         ) : showExamPlan ? (
           <ExamPlanner
@@ -693,8 +715,10 @@ export function HomeCalendar({
                 checked={withReminder}
                 onChange={(e) => setWithReminder(e.target.checked)}
               />
-              Påminnelse 1 h innan
+              Påminn mig
             </label>
+            {withReminder && <ReminderTimingPicker value={reminderTiming} onChange={setReminderTiming} eventDate={selected} eventTime={time || "09:00"} />}
+            {formError && <p role="alert" className="text-xs text-danger">{formError}</p>}
             <div className="flex gap-2">
               <button type="submit" className="btn-primary py-1.5 text-sm">
                 Spara

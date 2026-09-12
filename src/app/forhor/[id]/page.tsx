@@ -2,19 +2,18 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { gradeAnswer, gradeVocabAnswer, rewriteQuestion } from "@/lib/ai-quiz";
 import { loadData, upsertExam, upsertQuiz } from "@/lib/store";
 import type { Homework, QuizSession } from "@/lib/types";
+import { PracticeSession } from "@/components/PracticeSession";
 import {
   tutorLangFromSubject,
   tutorLangFromSubjects,
   type TutorLang,
 } from "@/lib/tutor-lang";
-
-const SESSION_MS = 15 * 60 * 1000;
 
 type ChatMsg = {
   id: string;
@@ -32,13 +31,6 @@ type GradeResult = {
 
 function mid() {
   return crypto.randomUUID();
-}
-
-function formatClock(sec: number) {
-  const s = Math.max(0, sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
 const bridgeByLang: Record<TutorLang, string[]> = {
@@ -79,12 +71,12 @@ function introFor(
   const name = opts.title.replace(/^Glosförhör:\s*/, "");
   const timeNote =
     lang === "en"
-      ? "We'll chat for about 15 minutes, then I'll wrap up with tips on what to practise."
+      ? "We'll work through your material at your pace. You can pause and come back."
       : lang === "es"
-        ? "Hablaremos unos 15 minutos y luego te daré tips de qué practicar."
+        ? "Trabajamos a tu ritmo. Puedes hacer una pausa y volver."
         : lang === "de"
-          ? "Wir sprechen etwa 15 Minuten, dann fasse ich zusammen, was du üben solltest."
-          : "Vi håller på i ungefär 15 minuter — sen rundar jag av med tips på vad du kan träna mer.";
+          ? "Wir arbeiten in deinem Tempo. Du kannst eine Pause machen und zurückkommen."
+          : "Vi går igenom materialet i din takt. Du kan pausa och fortsätta senare.";
 
   if (opts.vocab) {
     if (lang === "en")
@@ -115,7 +107,7 @@ function introFor(
 
 function buildPracticeTips(session: QuizSession): string[] {
   const failedIds = new Set(
-    session.answers.filter((a) => !a.correct).map((a) => a.questionId),
+    session.answers.filter((a) => !a.correct || a.needsPractice).map((a) => a.questionId),
   );
   const tips: string[] = [];
   for (const q of session.questions) {
@@ -215,21 +207,30 @@ function ChatBubble({ msg }: { msg: ChatMsg }) {
 
 export default function ForhorSessionPage() {
   const { id } = useParams<{ id: string }>();
-  const { data, ready, refresh } = useAppData();
-  const session = data.quizSessions.find((q) => q.id === id);
+  const app = useAppData();
+  const session = app.data.quizSessions.find(q => q.id === id);
+  if (!app.ready) return <p className="text-muted">Laddar…</p>;
+  if (!session) return <div className="panel p-6">Förhöret hittades inte. <Link href="/forhor">Tillbaka</Link></div>;
+  if (session.mode === "exam" || session.mode === "flashcards") return <PracticeSession key={id} session={session} homeworks={app.data.homeworks.filter(h => session.homeworkIds.includes(h.id))} />;
+  return <ChatSession key={id} session={session} app={app} />;
+}
 
-  const [index, setIndex] = useState(0);
+function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<typeof useAppData> }) {
+  const { data, refresh } = app;
+  const id = session.id;
+  const router = useRouter();
+  const resumeIndex = session.questions.findIndex(q => !session.answers.some(a => a.questionId === q.id && !a.pending));
+  const pending = session.answers.find(a => a.questionId === session.questions[resumeIndex]?.id && a.pending);
+
+  const [index, setIndex] = useState(resumeIndex < 0 ? session.questions.length : resumeIndex);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [finished, setFinished] = useState(false);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [booted, setBooted] = useState(false);
-  const [attempts, setAttempts] = useState<Record<string, number>>({});
+  const [attempts, setAttempts] = useState<Record<string, number>>(pending ? { [pending.questionId]: pending.attempts || 1 } : {});
   const [priorByQuestion, setPriorByQuestion] = useState<
     Record<string, string[]>
-  >({});
+  >(pending ? { [pending.questionId]: pending.priorAnswers || [pending.userAnswer] } : {});
   const [practiceTips, setPracticeTips] = useState<string[]>([]);
-  const [secondsLeft, setSecondsLeft] = useState(15 * 60);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const finishingRef = useRef(false);
@@ -258,41 +259,18 @@ export default function ForhorSessionPage() {
         )
       : tutorLangFromSubjects(linkedHomeworks.map((h) => h.subject));
 
-  useEffect(() => {
-    if (!session || booted || session.finishedAt) return;
-    const q0 = session.questions[0];
+  const [messages, setMessages] = useState<ChatMsg[]>(() => {
     const n = session.homeworkIds.length;
+    if (session.finishedAt) return [{ id: mid(), role: "ai", text: wrapUpMsg(chatLang, { scorePercent: session.scorePercent || 0, timedOut: false, tips: buildPracticeTips(session) }), tone: "pep" }];
     const intro = introFor(chatLang, {
       vocab: session.mode === "vocab",
       multi: n > 1,
       n,
       title: session.title,
-      firstQ: q0?.prompt || "",
+      firstQ: pending?.feedback || session.questions[resumeIndex]?.prompt || "Alla frågor är besvarade. Avsluta för att se resultatet.",
     });
-    setMessages([{ id: mid(), role: "ai", text: intro, tone: "pep" }]);
-    setBooted(true);
-    if (session.finishedAt) setFinished(true);
-  }, [session, booted, chatLang]);
-
-  // 15-minuterspass
-  useEffect(() => {
-    if (!session || session.finishedAt || finished) return;
-    const endAt = new Date(session.startedAt).getTime() + SESSION_MS;
-
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
-      setSecondsLeft(left);
-      if (left <= 0 && !finishingRef.current) {
-        finishingRef.current = true;
-        const current =
-          loadData().quizSessions.find((q) => q.id === id) || session;
-        finishSessionRef.current?.(current, true);
-      }
-    };
-    tick();
-    const t = window.setInterval(tick, 1000);
-    return () => window.clearInterval(t);
-  }, [session, finished, id]);
+    return [{ id: mid(), role: "ai", text: intro, tone: "pep" }];
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -315,7 +293,7 @@ export default function ForhorSessionPage() {
     (current: QuizSession, timedOut: boolean) => {
       if (finished || current.finishedAt) return;
       finishingRef.current = true;
-      const answered = current.answers;
+      const answered = [...new Map(current.answers.map(a => [a.questionId, { ...a, pending: false }])).values()];
       const correctCount = answered.filter((a) => a.correct).length;
       const scorePercent = answered.length
         ? Math.round((correctCount / answered.length) * 100)
@@ -325,6 +303,7 @@ export default function ForhorSessionPage() {
 
       const updated: QuizSession = {
         ...current,
+        answers: answered,
         finishedAt: new Date().toISOString(),
         scorePercent,
       };
@@ -359,24 +338,8 @@ export default function ForhorSessionPage() {
     [finished, persist, hw, chatLang],
   );
 
-  const finishSessionRef = useRef(finishSession);
-  finishSessionRef.current = finishSession;
-
-  if (!ready) return <p className="text-muted">Laddar…</p>;
-  if (!session) {
-    return (
-      <div className="panel p-6">
-        <p>Förhöret hittades inte.</p>
-        <Link href="/forhor" className="btn-secondary mt-3 inline-flex">
-          Tillbaka
-        </Link>
-      </div>
-    );
-  }
-
   const question = session.questions[index];
   const isDone = finished || Boolean(session.finishedAt);
-  const timeAlmostUp = secondsLeft <= 30;
 
   const pushAi = (text: string, tone?: ChatMsg["tone"]) => {
     setMessages((m) => [...m, { id: mid(), role: "ai", text, tone }]);
@@ -387,16 +350,6 @@ export default function ForhorSessionPage() {
     tutorText: string,
     tone: ChatMsg["tone"],
   ) => {
-    // Tiden nästan slut → runda av i stället för ny fråga
-    if (secondsLeft <= 20) {
-      setMessages((m) => [
-        ...m,
-        { id: mid(), role: "ai", text: tutorText, tone },
-      ]);
-      finishSession(current, true);
-      return;
-    }
-
     const nextIndex = index + 1;
     if (nextIndex >= current.questions.length) {
       setMessages((m) => [
@@ -437,12 +390,14 @@ export default function ForhorSessionPage() {
     try {
       const res = await fetch("/api/quiz/grade", {
         method: "POST",
+        signal: AbortSignal.timeout(45000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: question.prompt,
           expectedAnswer: question.expectedAnswer,
           userAnswer: text,
           priorAnswers: prior,
+          previousFeedback: messages.filter(m => m.role === "ai").at(-1)?.text,
           tip: question.tip,
           mode: session.mode,
           attemptCount,
@@ -504,6 +459,10 @@ export default function ForhorSessionPage() {
       };
     }
 
+    if (finishingRef.current || loadData().quizSessions.find(q => q.id === id)?.finishedAt) {
+      setBusy(false);
+      return;
+    }
     const nextAction =
       result.next_action ||
       (result.correct || result.evaluation === "correct"
@@ -526,7 +485,7 @@ export default function ForhorSessionPage() {
     const nextPriors = [...prior, text];
 
     // Gå vidare när innehållet räcker (egna ord OK)
-    if (isDoneEnough) {
+    if (isDoneEnough || attemptCount >= 3 || result.evaluation === "not_assessable") {
       setPriorByQuestion((p) => {
         const copy = { ...p };
         delete copy[question.id];
@@ -535,17 +494,22 @@ export default function ForhorSessionPage() {
       const updated: QuizSession = {
         ...current,
         answers: [
-          ...current.answers,
+          ...current.answers.filter(a => a.questionId !== question.id),
           {
             questionId: question.id,
             userAnswer: nextPriors.join(" | "),
-            correct: true,
+            correct: isDoneEnough,
+            needsPractice: !isDoneEnough || attemptCount > 1,
+            attempts: attemptCount,
             feedback: tutorText,
           },
         ],
       };
       persist(updated);
-      advanceConversation(updated, tutorText, tone);
+      const finalText = isDoneEnough ? tutorText : result.evaluation === "not_assessable"
+        ? "Den här frågan gick inte att bedöma. Vi lämnar den och går vidare."
+        : `Vi sparar det här till mer träning. Du behöver inte börja om.\n\nKort förklaring: ${question.expectedAnswer}`;
+      advanceConversation(updated, finalText, tone);
       setBusy(false);
       return;
     }
@@ -557,24 +521,10 @@ export default function ForhorSessionPage() {
       { id: mid(), role: "ai", text: tutorText, tone },
     ]);
 
-    // Efter många försök: spara som ej klar men låt dem fortsätta eller gå vidare
-    if (attemptCount >= 3) {
-      const already = current.answers.some((a) => a.questionId === question.id);
-      if (!already) {
-        persist({
-          ...current,
-          answers: [
-            ...current.answers,
-            {
-              questionId: question.id,
-              userAnswer: nextPriors.join(" | "),
-              correct: false,
-              feedback: tutorText,
-            },
-          ],
-        });
-      }
-    }
+    persist({ ...current, answers: [
+      ...current.answers.filter(a => a.questionId !== question.id),
+      { questionId: question.id, userAnswer: nextPriors.join(" | "), priorAnswers: nextPriors, correct: false, pending: true, attempts: attemptCount, feedback: tutorText },
+    ] });
 
     setBusy(false);
   };
@@ -582,13 +532,13 @@ export default function ForhorSessionPage() {
   const continueSoftly = () => {
     if (!question || isDone) return;
     const current = loadData().quizSessions.find((q) => q.id === id) || session;
-    const already = current.answers.some((a) => a.questionId === question.id);
+    const already = current.answers.some((a) => a.questionId === question.id && !a.pending);
     const updated: QuizSession = already
       ? current
       : {
           ...current,
           answers: [
-            ...current.answers,
+            ...current.answers.filter(a => a.questionId !== question.id),
             {
               questionId: question.id,
               userAnswer: "(låste sig — gick vidare)",
@@ -639,7 +589,7 @@ export default function ForhorSessionPage() {
   const startRetry = () => {
     const current = loadData().quizSessions.find((q) => q.id === id) || session;
     const failedIds = new Set(
-      current.answers.filter((a) => !a.correct).map((a) => a.questionId),
+      current.answers.filter((a) => !a.correct || a.needsPractice).map((a) => a.questionId),
     );
     const base = current.questions.filter((q) => failedIds.has(q.id));
     if (!base.length) {
@@ -648,7 +598,7 @@ export default function ForhorSessionPage() {
         current.homeworkIds.length === 1
           ? `/forhor/start?homework=${current.homeworkIds[0]}`
           : `/forhor/start?homeworks=${current.homeworkIds.join(",")}`;
-      window.location.href = href;
+      router.push(href);
       return;
     }
     const retryQs = base.map((q) => rewriteQuestion(q, hw));
@@ -664,12 +614,12 @@ export default function ForhorSessionPage() {
     };
     upsertQuiz(retry);
     notifyDataChanged();
-    window.location.href = `/forhor/${retry.id}`;
+    router.push(`/forhor/${retry.id}`);
   };
 
   const startFreshQuiz = () => {
     if (session.mode === "vocab" && session.vocabListId) {
-      window.location.href = `/glosor/${session.vocabListId}`;
+      router.push(`/glosor/${session.vocabListId}`);
       return;
     }
     const href =
@@ -678,11 +628,11 @@ export default function ForhorSessionPage() {
         : session.homeworkIds.length > 1
           ? `/forhor/start?homeworks=${session.homeworkIds.join(",")}`
           : "/forhor";
-    window.location.href = href;
+    router.push(href);
   };
 
   const latest = loadData().quizSessions.find((q) => q.id === id) || session;
-  const failedCount = latest.answers.filter((a) => !a.correct).length;
+  const failedCount = latest.answers.filter((a) => !a.correct || a.needsPractice).length;
   const tipsShown = practiceTips.length
     ? practiceTips
     : buildPracticeTips(latest);
@@ -697,28 +647,23 @@ export default function ForhorSessionPage() {
           className={`rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
             isDone
               ? "bg-sage-soft text-sage"
-              : timeAlmostUp
-                ? "bg-coral/15 text-coral"
-                : "bg-sky-soft text-sky"
+              : "bg-sky-soft text-sky"
           }`}
         >
-          {isDone ? "Klart" : formatClock(secondsLeft)}
+          {isDone ? "Klart" : `${Math.min(index + 1, session.questions.length)} av ${session.questions.length}`}
         </span>
       </div>
 
       <div className="mb-2 h-1 overflow-hidden rounded-full bg-[var(--line)]">
         <div
-          className={`h-full transition-all duration-300 ${
-            timeAlmostUp && !isDone ? "bg-coral" : "bg-sage"
-          }`}
+          className="h-full bg-sage transition-all duration-300"
           style={{
             width: `${
               isDone
                 ? 100
                 : Math.min(
                     100,
-                    ((SESSION_MS / 1000 - secondsLeft) / (SESSION_MS / 1000)) *
-                      100,
+                    index / Math.max(1, session.questions.length) * 100,
                   )
             }%`,
           }}
@@ -737,7 +682,7 @@ export default function ForhorSessionPage() {
           <div>
             <p className="text-sm font-semibold">Buddie</p>
             <p className="text-xs text-muted">
-              Lärsamtal · ca 15 min · ingen facit
+              Lärsamtal · i din takt · {session.questions.length} frågor
             </p>
           </div>
         </div>
@@ -781,6 +726,7 @@ export default function ForhorSessionPage() {
                 </button>
               </div>
               <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-ghost text-xs" disabled={busy} onClick={() => finishSession(loadData().quizSessions.find(q => q.id === id) || session, false)}>Avsluta & se resultat</button>
                 <button
                   type="button"
                   className="btn-secondary text-xs"

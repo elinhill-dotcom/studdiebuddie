@@ -5,6 +5,11 @@ import { parseVocabPaste } from "@/lib/ai-quiz";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+function isSavedAttachment(value?: string) {
+  if (!value || !process.env.NEXT_PUBLIC_SUPABASE_URL) return false;
+  try { const url = new URL(value); return url.protocol === "https:" && url.origin === new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin && url.pathname.startsWith("/storage/v1/object/sign/homework-photos/"); } catch { return false; }
+}
+
 type Body = {
   photoDataUrl?: string;
   pdfDataUrl?: string;
@@ -17,9 +22,13 @@ type Body = {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
+    if ((body.photoDataUrl && !body.photoDataUrl.startsWith("data:image/") && !isSavedAttachment(body.photoDataUrl)) || (body.pdfDataUrl && !body.pdfDataUrl.startsWith("data:application/pdf") && !isSavedAttachment(body.pdfDataUrl))) {
+      return NextResponse.json({ error: "Välj en uppladdad bild eller PDF från läxan." }, { status: 400 });
+    }
     const hasFile =
       Boolean(body.photoDataUrl?.startsWith("data:image")) ||
       Boolean(body.pdfDataUrl?.startsWith("data:application/pdf")) ||
+      isSavedAttachment(body.photoDataUrl) || isSavedAttachment(body.pdfDataUrl) ||
       Boolean(body.extractedText?.trim());
 
     if (!hasFile) {

@@ -163,6 +163,7 @@ export async function tutorEvaluateAnswer(args: {
   expectedAnswer: string;
   userAnswer: string;
   priorAnswers?: string[];
+  previousFeedback?: string;
   tip?: string;
   material?: string;
   attemptCount?: number;
@@ -182,6 +183,7 @@ export async function tutorEvaluateAnswer(args: {
     userAnswer: args.userAnswer,
     priorAnswers,
     combinedAnswer,
+    previousFeedback: args.previousFeedback || null,
     tip: args.tip || null,
     material: args.material || null,
     attemptCount,
@@ -208,6 +210,7 @@ export async function tutorEvaluateAnswer(args: {
 export async function tutorGenerateQuestions(args: {
   materialText: string;
   count: number;
+  format?: "chat" | "exam" | "flashcards";
   photoDataUrl?: string;
   pdfDataUrl?: string;
   pdfFileName?: string;
@@ -220,7 +223,7 @@ export async function tutorGenerateQuestions(args: {
   const content: OpenAI.Responses.ResponseInputContent[] = [
     {
       type: "input_text",
-      text: `Create exactly ${args.count} quiz questions from ONLY this uploaded material. Return JSON only.\n\n${args.materialText}`,
+      text: `Create ${args.count} distinct questions from ONLY this uploaded material. Cover the whole provided section, including its middle and ending, all major headings, concepts and comparisons. Do not repeat the same fact to reach the count. ${args.format === "flashcards" ? "Create concise flashcards: one focused recall question per prompt, and a short self-contained answer on the reverse in expectedAnswer." : args.format === "exam" ? "Create written exam questions with clear, assessable answer keys, varying recall, explanation and comparison." : "Create natural oral discussion questions, each with a clear answer key."} Return JSON only.\n\n${args.materialText}`,
     },
   ];
 

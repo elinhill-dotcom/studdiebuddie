@@ -79,11 +79,11 @@ export default function HomePage() {
                 saveName();
               }}
             >
-              <span className="font-display text-4xl font-semibold text-ink sm:text-5xl">
+              <span className="font-logo text-4xl font-semibold text-ink sm:text-5xl">
                 Hej
               </span>
               <input
-                className="input-field max-w-[12rem] font-display text-2xl font-semibold sm:text-3xl"
+                className="input-field font-logo max-w-[12rem] text-2xl font-semibold sm:text-3xl"
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
                 autoFocus
@@ -110,16 +110,13 @@ export default function HomePage() {
               }}
               title="Byt namn"
             >
-              <h1 className="font-display text-4xl font-semibold leading-[1.05] tracking-tight text-ink sm:text-5xl">
-                Hej{" "}
-                <span className="text-sage group-hover:underline decoration-sage/40 underline-offset-4">
-                  {greetingName}
-                </span>
+              <h1 className="font-logo text-4xl font-semibold leading-[1.05] tracking-tight text-ink sm:text-5xl">
+                Hej <span className="text-sage">{greetingName}</span>!
               </h1>
             </button>
           )}
           <p className="mt-2 max-w-sm text-sm text-ink-soft sm:text-base">
-            Din pluggyta — välj själv vilka moduler du vill se.
+            Vad vill du göra idag? Välj här nedanför. I kalendern ser du när läxorna ska vara klara.
           </p>
         </div>
         <ModulePicker active={modules} onChange={refresh} />
@@ -128,10 +125,10 @@ export default function HomePage() {
       {show("shortcuts") && (
         <section className="animate-rise-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            { href: "/laxor/ny", label: "Ny läxa", tint: "panel-tint-sage", accent: "text-sage" },
-            { href: "/forhor", label: "Förhör", tint: "panel-tint-coral", accent: "text-coral" },
-            { href: "/glosor", label: "Glosor", tint: "panel-tint-lilac", accent: "text-lilac" },
-            { href: "/paminnelser", label: "Påminnelse", tint: "panel-tint-brass", accent: "text-brass" },
+            { href: "/laxor/ny", label: "Lägg till läxa", hint: "Fota eller skriv in din läxa.", tint: "panel-tint-sage", accent: "text-sage" },
+            { href: "/forhor", label: "Träna läxan", hint: "Chatta, gör övningsprov eller frågekort.", tint: "panel-tint-coral", accent: "text-coral" },
+            { href: "/glosor", label: "Spela med glosor", hint: "Lär dig ord med tre olika spel.", tint: "panel-tint-lilac", accent: "text-lilac" },
+            { href: "/paminnelser", label: "Påminn mig", hint: "Välj vad du vill komma ihåg och när.", tint: "panel-tint-brass", accent: "text-brass" },
           ].map((s) => (
             <Link
               key={s.href}
@@ -141,6 +138,7 @@ export default function HomePage() {
               <p className={`font-display text-lg font-semibold ${s.accent}`}>
                 {s.label}
               </p>
+              <p className="mt-1 text-sm text-ink-soft">{s.hint}</p>
             </Link>
           ))}
         </section>
@@ -167,7 +165,7 @@ export default function HomePage() {
                   <h2 className="font-display text-lg font-semibold">Påminnelser</h2>
                 </div>
                 <Link href="/paminnelser" className="text-xs font-semibold text-lilac">
-                  Hantera
+                  Visa alla
                 </Link>
               </div>
               {upcomingReminders.length === 0 ? (
@@ -227,7 +225,7 @@ export default function HomePage() {
             <section className="panel panel-tint-brass p-4">
               <div className="mb-2 flex items-center gap-2">
                 <span className="module-dot bg-brass" />
-                <h2 className="font-display text-lg font-semibold">Fokus</h2>
+                <h2 className="font-display text-lg font-semibold">Träna lite extra</h2>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {weak.map((w) => (
@@ -249,7 +247,7 @@ export default function HomePage() {
 
       {!show("calendar") && show("homework") === false && show("reminders") === false && (
         <p className="text-center text-sm text-muted">
-          Inga moduler valda — tryck på Anpassa startsida.
+          Välj vad du vill se med knappen Anpassa startsida.
         </p>
       )}
     </div>

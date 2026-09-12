@@ -15,6 +15,8 @@ import {
 import { notifyDataChanged } from "@/components/useAppData";
 import { TimeInput24 } from "@/components/TimeInput24";
 import { HomeworkAttachments } from "@/components/HomeworkAttachments";
+import { ReminderTimingPicker } from "@/components/ReminderTimingPicker";
+import { reminderAt, type ReminderTiming } from "@/lib/reminder-time";
 
 export default function NyLaxaPage() {
   const router = useRouter();
@@ -30,6 +32,7 @@ export default function NyLaxaPage() {
   });
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState("09:00");
+  const [reminderTiming, setReminderTiming] = useState<ReminderTiming>({ choice: "60", date: "", time: "17:00" });
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,6 +40,11 @@ export default function NyLaxaPage() {
     e.preventDefault();
     if (!title.trim() || !dueDate) {
       setError("Titel och datum behövs.");
+      return;
+    }
+    const at = reminderAt(dueDate, reminderTime || "09:00", reminderTiming);
+    if (reminderEnabled && (!at || Date.parse(at) <= Date.now())) {
+      setError("Välj en påminnelsetid som ligger framåt i tiden.");
       return;
     }
     const hw = withMirroredAttachmentFields({
@@ -56,7 +64,7 @@ export default function NyLaxaPage() {
     });
     upsertHomework(hw);
     if (reminderEnabled) {
-      ensureHomeworkReminder(hw, reminderTime || "09:00");
+      ensureHomeworkReminder(hw, reminderTime || "09:00", at!);
       const cal = loadData().calendarEvents.find(
         (e) => e.homeworkId === hw.id && e.type === "homework" && e.date === hw.dueDate,
       );
@@ -177,7 +185,7 @@ export default function NyLaxaPage() {
               checked={reminderEnabled}
               onChange={(e) => setReminderEnabled(e.target.checked)}
             />
-            Lägg till påminnelse (1 h innan)
+            Lägg till påminnelse
           </label>
           {reminderEnabled && (
             <div>
@@ -187,9 +195,7 @@ export default function NyLaxaPage() {
                 onChange={setReminderTime}
                 className="w-full"
               />
-              <p className="mt-1 text-xs text-muted">
-                Påminnelsen skickas en timme innan den här tiden.
-              </p>
+              <div className="mt-3"><ReminderTimingPicker value={reminderTiming} onChange={setReminderTiming} eventDate={dueDate} eventTime={reminderTime || "09:00"} /></div>
             </div>
           )}
         </div>

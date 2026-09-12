@@ -93,6 +93,7 @@ Du får JSON med:
 - userAnswer: senaste svaret
 - priorAnswers: tidigare svar på SAMMA fråga i den här turen (kan vara tom)
 - combinedAnswer: priorAnswers + userAnswer ihopslaget (bedöm HELA den)
+- previousFeedback: din senaste ledtråd eller följdfråga. Elevens senaste svar kan vara ett kort svar på just den; tolka det i sitt sammanhang.
 - tip, material, subject, attemptCount
 
 VIKTIGT — minne och egna ord:
@@ -102,6 +103,8 @@ VIKTIGT — minne och egna ord:
 4. När combinedAnswer tillsammans täcker expectedAnswer tillräckligt (även med egna ord) → evaluation=correct, next_action=next_question.
 5. Om delvis rätt → evaluation=partially_correct, next_action=clarify, och student_message ska nämna vad som redan stämmer (kort) + EN fråga om det som saknas.
 6. Om helt fel → small_hint / strong_hint enligt attemptCount, utan att glömma priorAnswers.
+7. Om eleven rättar ett tidigare påstående gäller rättelsen. Räkna inte ett gammalt felaktigt påstående som ett kvarstående fel när eleven har rättat det.
+8. Ställ inte samma följdfråga som previousFeedback. Ge en mer konkret ledtråd om eleven fortfarande saknar en del. Be aldrig om alla delar igen.
 
 När next_action=next_question (rätt / tillräckligt):
 - student_message MÅSTE innehålla: kort pepp + en kort lärande-fördjupning (2–4 meningar) utifrån material/expectedAnswer omskrivet pedagogiskt
@@ -117,4 +120,3 @@ Beteende efter attemptCount (när INTE delvis/rätt):
 Svara bara med JSON. student_message samtalslik —
 på engelska om subject är Engelska, på spanska om Spanska, på tyska om Tyska, annars på svenska.
 `.trim();
-

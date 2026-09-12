@@ -142,8 +142,8 @@ export default function GlosorPage() {
             Glosor
           </h1>
           <p className="mt-1 max-w-lg text-ink-soft">
-            Skapa gloslistor direkt från foto eller PDF — sen bockar du i vilka
-            ord du vill öva.
+            Dina ord, ditt sätt att lära. Spela Memory, Ordjakten eller
+            Bokstavsmix – eller chatta med Buddie. Välj en lista för att börja.
           </p>
         </div>
         <button
@@ -158,8 +158,8 @@ export default function GlosorPage() {
       {showNew && (
         <form onSubmit={create} className="panel panel-tint-coral space-y-3 p-5">
           <div>
-            <label className="label">Namn</label>
-            <input
+            <label className="label" htmlFor="vocab-title">Namn</label>
+            <input id="vocab-title"
               className="input-field"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -169,16 +169,16 @@ export default function GlosorPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="label">Från språk</label>
-              <input
+              <label className="label" htmlFor="vocab-from">Från språk</label>
+              <input id="vocab-from"
                 className="input-field"
                 value={languageFrom}
                 onChange={(e) => setLanguageFrom(e.target.value)}
               />
             </div>
             <div>
-              <label className="label">Till språk</label>
-              <input
+              <label className="label" htmlFor="vocab-to">Till språk</label>
+              <input id="vocab-to"
                 className="input-field"
                 value={languageTo}
                 onChange={(e) => setLanguageTo(e.target.value)}
@@ -237,7 +237,7 @@ export default function GlosorPage() {
                 disabled={busy}
                 onClick={() => libraryRef.current?.click()}
               >
-                Bildbibliotek
+                Välj bild
               </button>
               <button
                 type="button"
@@ -266,8 +266,8 @@ export default function GlosorPage() {
           </div>
 
           <div>
-            <label className="label">Eller klistra in glosor</label>
-            <textarea
+            <label className="label" htmlFor="vocab-paste">Eller klistra in glosor</label>
+            <textarea id="vocab-paste"
               className="input-field min-h-24 font-mono text-sm"
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
@@ -316,6 +316,7 @@ export default function GlosorPage() {
                 {list.pairs.filter((p) => p.term && p.translation).length} ord ·{" "}
                 {list.languageFrom} → {list.languageTo}
               </p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs"><span className="tag bg-sage-soft text-sage">▦ Memory</span><span className="tag bg-lilac-soft text-lilac">◎ Ordjakten</span><span className="tag bg-sky-soft text-sky">Aa Bokstavsmix</span></div>
             </Link>
           ))}
         </div>

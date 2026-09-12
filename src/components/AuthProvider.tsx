@@ -127,13 +127,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!configured) {
       registerCloudSync(null);
-      setLoading(false);
       return;
     }
 
     const supabase = createClient();
     if (!supabase) {
-      setLoading(false);
       return;
     }
 

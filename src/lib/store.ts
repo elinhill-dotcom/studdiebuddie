@@ -267,32 +267,37 @@ export function completeHomeworkOccurrence(hw: Homework): AppData {
     status: "todo",
     dueDate: addDaysIso(hw.dueDate, 7),
   };
+  const previous = loadData().reminders.filter(r => r.homeworkId === hw.id && r.url === `/laxor/${hw.id}`).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const followingAt = previous ? new Date(previous.at) : null;
+  if (followingAt) followingAt.setDate(followingAt.getDate() + 7);
   upsertHomework(next);
   if (next.reminderEnabled) {
-    ensureHomeworkReminder(next);
+    ensureHomeworkReminder(next, "09:00", followingAt?.toISOString());
   }
   return loadData();
 }
 
-/** Valfri påminnelse 1 h innan läxans deadline (skapar/uppdaterar en) */
+/** Keep an existing choice unless the caller explicitly supplies a new time. */
 export function ensureHomeworkReminder(
   hw: Homework,
   time = "09:00",
+  at?: string,
 ): Reminder {
   const data = loadData();
   const existing = data.reminders.find(
-    (r) => r.homeworkId === hw.id && r.enabled && !r.notified,
+    (r) => r.homeworkId === hw.id && r.url === `/laxor/${hw.id}` && !r.notified,
   );
   const base = new Date(`${hw.dueDate}T${time}:00`);
   const reminder: Reminder = {
     id: existing?.id || crypto.randomUUID(),
     title: `Läxa: ${hw.title}`,
     message: `Deadline för “${hw.title}”.`,
-    at: new Date(base.getTime() - 60 * 60_000).toISOString(),
+    at: at || existing?.at || new Date(base.getTime() - 60 * 60_000).toISOString(),
     enabled: true,
     notified: false,
     homeworkId: hw.id,
     url: `/laxor/${hw.id}`,
+    eventId: data.calendarEvents.find(e => e.homeworkId === hw.id && e.type === "homework" && e.date === hw.dueDate)?.id,
     createdAt: existing?.createdAt || new Date().toISOString(),
   };
   upsertReminder(reminder);
@@ -421,8 +426,11 @@ export function upsertVocabList(list: VocabList): AppData {
 export function deleteVocabList(id: string): AppData {
   const data = loadData();
   data.vocabLists = data.vocabLists.filter((v) => v.id !== id);
+  const reminders = data.reminders.filter(r => r.url === `/glosor/${id}`);
+  data.reminders = data.reminders.filter(r => r.url !== `/glosor/${id}`);
   saveData(data);
   cloudSync?.onVocabDelete?.(id);
+  for (const reminder of reminders) cloudSync?.onReminderDelete?.(reminder.id);
   return data;
 }
 

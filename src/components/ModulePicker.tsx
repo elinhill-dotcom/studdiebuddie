@@ -83,10 +83,10 @@ export function ModulePicker({
               className="fixed z-[210] w-64 rounded-2xl border border-[var(--line)] bg-white p-3 shadow-xl"
               style={{ top: pos.top, right: pos.right }}
               role="dialog"
-              aria-label="Visa moduler"
+              aria-label="Visa på startsidan"
             >
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-                Visa moduler
+                Visa på startsidan
               </p>
               <ul className="space-y-1">
                 {ALL.map((id) => {

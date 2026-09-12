@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useAppData } from "@/components/useAppData";
 import { SUBJECTS, hasHomeworkFiles } from "@/lib/helpers";
 import type { Subject } from "@/lib/types";
+import { homeworkPractice } from "@/lib/practice";
 
 export default function ForhorLobbyPage() {
   const { data, ready } = useAppData();
@@ -13,7 +14,7 @@ export default function ForhorLobbyPage() {
 
   const allHomework = useMemo(() => {
     if (!ready) return [];
-    return data.homeworks.filter((h) => h.status !== "done" || h.recurringWeekly);
+    return data.homeworks;
   }, [data.homeworks, ready]);
 
   const filtered = useMemo(() => {
@@ -52,12 +53,13 @@ export default function ForhorLobbyPage() {
     <div className="space-y-8">
       <div>
         <h1 className="font-display text-3xl font-medium tracking-tight sm:text-4xl">
-          Förhörsrummet
+          Träna läxan
         </h1>
         <p className="mt-2 max-w-lg text-ink-soft">
-          Välj en eller flera sparade läxor — Buddie ställer frågor utifrån
-          materialet. Saknar du fil? Du kan ladda upp den precis innan förhöret.
+          Välj läxa och träna på ditt sätt: chatta med Buddie, skriv ett prov
+          eller svara högt med frågekort (flashcards). Följ din träning under varje läxa.
         </p>
+        <Link href="/laxor/ny" className="btn-primary mt-4 inline-flex">+ Lägg till ny läxa</Link>
       </div>
 
       <Link
@@ -78,8 +80,8 @@ export default function ForhorLobbyPage() {
 
       <div className="panel border-[var(--line)] bg-sage-soft/40 px-5 py-4">
         <p className="text-sm leading-relaxed text-sage">
-          Tipset: filtrera på ämne, bocka i läxorna du vill träna, och starta.
-          Fil kan laddas upp nu eller senare.
+          Börja med en läxa nedanför. Välj hur du vill träna på läxans knappar.
+          Vill du träna flera läxor tillsammans? Kryssa i dem och tryck på Träna valda läxor.
         </p>
       </div>
 
@@ -132,12 +134,12 @@ export default function ForhorLobbyPage() {
                 onClick={toggleAllFiltered}
               >
                 {filtered.every((h) => selected.includes(h.id))
-                  ? "Avmarkera synliga"
-                  : "Markera synliga"}
+                  ? "Ta bort alla val"
+                  : "Välj alla som visas"}
               </button>
               {startHref ? (
                 <Link href={startHref} className="btn-primary text-sm">
-                  Starta förhör ({selected.length})
+                  Träna valda läxor ({selected.length})
                 </Link>
               ) : (
                 <button type="button" className="btn-primary text-sm" disabled>
@@ -150,10 +152,11 @@ export default function ForhorLobbyPage() {
               {filtered.map((hw) => {
                 const checked = selected.includes(hw.id);
                 const hasFile = hasHomeworkFiles(hw);
+                const stats = homeworkPractice(data.quizSessions, hw.id);
                 return (
-                  <li key={hw.id}>
+                  <li key={hw.id} className="panel overflow-hidden">
                     <label
-                      className={`panel flex cursor-pointer gap-3 p-4 transition hover:-translate-y-0.5 ${
+                      className={`flex cursor-pointer gap-3 p-4 transition ${
                         checked ? "ring-2 ring-sage/40" : ""
                       }`}
                     >
@@ -186,6 +189,27 @@ export default function ForhorLobbyPage() {
                         </span>
                       </span>
                     </label>
+                    <div className="space-y-3 border-t border-[var(--line)] p-4">
+                      <p className="text-sm text-muted">{stats.sessions} träningspass · {stats.answered} besvarade frågor · {stats.percent === null ? "Inget resultat ännu" : `${stats.percent}% rätt totalt`}</p>
+                      <p className="text-sm text-ink-soft">Chatta en fråga i taget, skriv ett övningsprov eller vänd frågekort och svara högt.</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Link className="btn-primary text-sm" href={`/forhor/start?homework=${hw.id}`}>Chatta med Buddie</Link>
+                        <Link className="btn-secondary text-sm" href={`/forhor/start?homework=${hw.id}&format=exam`}>Gör övningsprov</Link>
+                        <Link className="btn-secondary text-sm" href={`/forhor/start?homework=${hw.id}&format=flashcards`}>Frågekort</Link>
+                      </div>
+                      <details className="rounded-xl bg-sage-soft/40 p-3">
+                        <summary className="cursor-pointer text-sm font-medium text-sage">ⓘ Min träning & tips</summary>
+                        <div className="mt-3 space-y-3 text-sm">
+                          <p>{stats.completed} avslutade pass. På frågekorten väljer du själv om du kunde svaret.</p>
+                          {stats.weakQuestions.length ? <>
+                            <p>Det här behövde du hjälp med senast:</p>
+                            <ul className="list-inside list-disc">{stats.weakQuestions.map(q => <li key={q.id}>{q.topic || q.prompt}</li>)}</ul>
+                            <Link className="btn-primary inline-flex text-sm" href={`/forhor/start?homework=${hw.id}&focus=weak`}>Förhör mig på detta</Link>
+                          </> : <p>{stats.answered ? "Inga särskilda svårigheter i dina senaste svar. Repetera gärna med ett nytt pass." : "Träna en första gång så får du tips utifrån dina svar."}</p>}
+                          <Link className="block text-sage underline" href={`/laxor/${hw.id}`}>Visa eller ändra läxan</Link>
+                        </div>
+                      </details>
+                    </div>
                   </li>
                 );
               })}
@@ -194,7 +218,7 @@ export default function ForhorLobbyPage() {
             {startHref && (
               <div className="sticky bottom-4 z-10 flex justify-center sm:hidden">
                 <Link href={startHref} className="btn-primary shadow-lg">
-                  Starta förhör ({selected.length})
+                  Träna valda läxor ({selected.length})
                 </Link>
               </div>
             )}
@@ -204,7 +228,7 @@ export default function ForhorLobbyPage() {
 
       {recent.length > 0 && (
         <section>
-          <h2 className="font-display mb-3 text-xl font-medium">Senaste</h2>
+          <h2 className="font-display mb-3 text-xl font-medium">Din senaste träning</h2>
           <ul className="panel divide-y divide-[var(--line)]">
             {recent.map((q) => (
               <li

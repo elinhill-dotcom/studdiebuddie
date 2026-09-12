@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { notifyDataChanged, useAppData } from "@/components/useAppData";
 import { HomeworkAttachments, attachmentValueFromHomework } from "@/components/HomeworkAttachments";
 import { dueLabel, statusLabel } from "@/lib/helpers";
@@ -21,13 +20,8 @@ export default function LaxaDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data, ready, refresh } = useAppData();
   const router = useRouter();
-  const [status, setStatus] = useState<HomeworkStatus>("todo");
-
   const hw = data.homeworks.find((h) => h.id === id);
-
-  useEffect(() => {
-    if (hw) setStatus(hw.status);
-  }, [hw]);
+  const status = hw?.status || "todo";
 
   if (!ready) return <p className="text-muted">Laddar…</p>;
   if (!hw) {
@@ -44,12 +38,10 @@ export default function LaxaDetailPage() {
   const updateStatus = (s: HomeworkStatus) => {
     if (s === "done" && hw.recurringWeekly) {
       completeHomeworkOccurrence(hw);
-      setStatus("todo");
       notifyDataChanged();
       refresh();
       return;
     }
-    setStatus(s);
     upsertHomework({ ...hw, status: s });
     notifyDataChanged();
     refresh();
@@ -57,7 +49,7 @@ export default function LaxaDetailPage() {
 
   const toggleReminder = () => {
     if (hw.reminderEnabled) {
-      const rem = loadData().reminders.filter((r) => r.homeworkId === hw.id);
+      const rem = loadData().reminders.filter((r) => r.homeworkId === hw.id && r.url === `/laxor/${hw.id}`);
       for (const r of rem) deleteReminder(r.id);
       upsertHomework({ ...hw, reminderEnabled: false });
     } else {
@@ -179,8 +171,9 @@ export default function LaxaDetailPage() {
               checked={hw.reminderEnabled}
               onChange={toggleReminder}
             />
-            Påminnelse 1 h innan deadline
-          </label>
+            Påminnelse för läxan
+            </label>
+            {hw.reminderEnabled && <Link href="/paminnelser" className="text-sm text-sage underline">Välj eller ändra påminnelsetid</Link>}
         </div>
 
         <div className="flex flex-wrap gap-3 pt-1">

@@ -112,6 +112,7 @@ export function generateSummaryQuestions(
 export function rewriteQuestion(q: QuizQuestion, hw?: Homework): QuizQuestion {
   return {
     id: id(),
+    homeworkId: q.homeworkId,
     rewrittenFromId: q.id,
     prompt: `Vi tar om det på ett annat sätt: ${softenPrompt(q.prompt)}`,
     expectedAnswer: q.expectedAnswer,
@@ -150,7 +151,7 @@ export function gradeAnswer(
   if (parts.length >= 2) {
     const hitParts = parts.filter((p) => partCovered(a, p));
     const hitRatio = hitParts.length / parts.length;
-    if (hitRatio >= 0.67) {
+    if (hitRatio === 1) {
       return {
         correct: true,
         partial: false,
@@ -163,9 +164,10 @@ export function gradeAnswer(
         correct: false,
         partial: true,
         hitRatio,
-        feedback: `Bra, du har ${hitParts.length} av ${parts.length} delar. Vad mer hör till?`,
+        feedback: `Du har redan med ${hitParts.length} av ${parts.length} delar. Behåll dem! Komplettera bara med ${parts.length - hitParts.length === 1 ? "den sista delen" : "delarna som saknas"}.`,
       };
     }
+    return { correct: false, partial: false, hitRatio: 0, feedback: "Titta på ledtråden och prova en del i taget." };
   }
 
   const eWords = significantWords(e);

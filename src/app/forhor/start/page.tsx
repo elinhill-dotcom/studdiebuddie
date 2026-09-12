@@ -18,16 +18,21 @@ import type {
   QuizSession,
 } from "@/lib/types";
 import Link from "next/link";
+import { homeworkPractice } from "@/lib/practice";
+import { practiceBatches, type PracticeFormat } from "@/lib/practice-material";
+import { combinedAttachmentText } from "@/lib/attachments";
 
 async function generateForHomework(
   hw: Homework,
   count: number,
+  format: PracticeFormat,
 ): Promise<{ questions: QuizQuestion[]; source: string }> {
   try {
     const res = await fetch("/api/quiz/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ homework: hw, count }),
+      signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({ homework: hw, count, format }),
     });
     if (res.ok) {
       const json = (await res.json()) as {
@@ -51,6 +56,8 @@ function StartInner() {
   const params = useSearchParams();
   const singleId = params.get("homework");
   const multiParam = params.get("homeworks");
+  const format = params.get("format");
+  const focus = params.get("focus") === "weak";
   const router = useRouter();
   const [error, setError] = useState("");
   const [status, setStatus] = useState("Förbereder…");
@@ -76,6 +83,22 @@ function StartInner() {
 
       if (!homeworks.length) {
         setError("Läxorna hittades inte.");
+        return;
+      }
+
+      if (focus) {
+        const questions = homeworks.flatMap(hw => homeworkPractice(data.quizSessions, hw.id).weakQuestions.map(q => ({ ...q, id: crypto.randomUUID(), homeworkId: hw.id })));
+        if (!questions.length) {
+          setError("Det finns inga sparade träningsområden ännu. Starta ett vanligt förhör först.");
+          return;
+        }
+        const session: QuizSession = {
+          id: crypto.randomUUID(), homeworkIds: ids, mode: format === "exam" || format === "flashcards" ? format : "retry",
+          title: `Träna mer: ${homeworks.map(h => h.title).join(", ")}`, questions, answers: [], startedAt: new Date().toISOString(),
+        };
+        upsertQuiz(session);
+        notifyDataChanged();
+        router.replace(`/forhor/${session.id}`);
         return;
       }
 
@@ -105,20 +128,34 @@ function StartInner() {
           : "Buddie hittar på frågor utifrån ditt material…",
       );
 
-      const totalTarget = multi ? Math.min(12, usable.length * 3) : 6;
-      const perHw = Math.max(2, Math.ceil(totalTarget / usable.length));
-
       const allQuestions: QuizQuestion[] = [];
       let anyAi = false;
+      const practiceFormat: PracticeFormat = format === "exam" || format === "flashcards" ? format : "chat";
 
       for (const hw of usable) {
-        setStatus(`Skapar frågor från “${hw.title}”…`);
-        const { questions, source } = await generateForHomework(hw, perHw);
-        if (source === "ai") anyAi = true;
-        allQuestions.push(...questions);
+        const text = [hw.description, combinedAttachmentText(hw)].filter(Boolean).join("\n\n");
+        const batches = practiceBatches(text, practiceFormat);
+        // Without extracted text the original images/PDFs remain the source.
+        const sections = batches.length > 1 ? batches : [{ text, count: batches[0]?.count || 12 }];
+        for (let part = 0; part < sections.length; part++) {
+          setStatus(`Läser “${hw.title}”, del ${part + 1} av ${sections.length}. ${allQuestions.length} frågor skapade…`);
+          const section = sections[part];
+          const sourceHomework: Homework = sections.length > 1 ? {
+            ...hw, description: "", extractedText: section.text, attachments: [], photoDataUrl: undefined, pdfDataUrl: undefined, pdfFileName: undefined,
+          } : hw;
+          const { questions, source } = await generateForHomework(sourceHomework, section.count, practiceFormat);
+          if (source === "ai") anyAi = true;
+          allQuestions.push(...questions.map(q => ({ ...q, homeworkId: hw.id })));
+        }
       }
 
-      const questions = allQuestions.slice(0, multi ? 12 : 6);
+      const seen = new Set<string>();
+      const questions = allQuestions.filter(q => {
+        const key = `${q.homeworkId}:${q.prompt.trim().toLocaleLowerCase()}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       if (!questions.length) {
         setError("Kunde inte skapa frågor. Försök igen.");
         return;
@@ -135,7 +172,7 @@ function StartInner() {
       const session: QuizSession = {
         id: crypto.randomUUID(),
         homeworkIds: usable.map((h) => h.id),
-        mode: multi ? "summary" : "single",
+        mode: format === "exam" || format === "flashcards" ? format : multi ? "summary" : "single",
         title,
         questions,
         answers: [],
@@ -145,12 +182,12 @@ function StartInner() {
       notifyDataChanged();
       setStatus(
         anyAi
-          ? "Klart — startar chatten…"
-          : "Klart (lokala frågor) — startar chatten…",
+          ? `Klart — startar med ${questions.length} frågor…`
+          : `Klart — startar med ${questions.length} lokala övningsfrågor…`,
       );
       router.replace(`/forhor/${session.id}`);
     },
-    [router],
+    [router, format, focus],
   );
 
   useEffect(() => {
@@ -162,11 +199,14 @@ function StartInner() {
         : [];
 
     if (!ids.length) {
-      setError("Ingen läxa vald.");
       return;
     }
-    started.current = true;
-    void runQuiz(ids);
+    const timer = window.setTimeout(() => {
+      if (started.current) return;
+      started.current = true;
+      void runQuiz(ids);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [singleId, multiParam, runQuiz]);
 
   const saveUploadAndContinue = () => {
@@ -233,10 +273,10 @@ function StartInner() {
     );
   }
 
-  if (error) {
+  if (error || (!singleId && !multiParam)) {
     return (
       <div className="panel p-6">
-        <p className="font-semibold text-danger">{error}</p>
+        <p className="font-semibold text-danger">{error || "Ingen läxa vald."}</p>
         <Link href="/forhor" className="btn-secondary mt-3 inline-flex">
           Tillbaka
         </Link>
