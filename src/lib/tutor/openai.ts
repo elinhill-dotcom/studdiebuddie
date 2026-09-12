@@ -362,6 +362,7 @@ export async function extractVocabFromUpload(args: {
       type: "input_text",
       text: [
         "Extract every vocabulary pair from this gloss list / word list.",
+        "There may be many rows and several photographed pages. Do not stop after three pairs; continue until every clearly visible row on this image is included.",
         "Return JSON only: languageFrom, languageTo, pairs[{term, translation}].",
         "term = left/source language word, translation = right/target language.",
         "Skip headers, page numbers, and empty rows. Keep original spelling.",

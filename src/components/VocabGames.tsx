@@ -67,7 +67,8 @@ function MemoryBoard({ pairs, page, pages, onMatch, next }: { pairs: VocabPair[]
   const [moves, setMoves] = useState(0);
   const mismatch = flipped.length === 2;
   function flip(id: string) {
-    if (mismatch || flipped.includes(id)) return;
+    if (mismatch) { setFlipped([id]); return; }
+    if (flipped.includes(id)) return;
     const card = cards.find(c => c.id === id)!;
     if (matched.includes(card.pair.id)) return;
     if (!flipped.length) { setFlipped([id]); return; }
@@ -82,11 +83,11 @@ function MemoryBoard({ pairs, page, pages, onMatch, next }: { pairs: VocabPair[]
     <div className="flex justify-between text-sm"><span>Bricka {page + 1} av {pages}</span><span>{moves} försök · {matched.length}/{pairs.length} par</span></div>
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3">{cards.map((c, index) => {
       const found = matched.includes(c.pair.id), visible = found || flipped.includes(c.id);
-      return <button key={c.id} className={`memory-card ${visible ? "is-flipped" : ""} ${found ? "is-matched" : ""}`} onClick={() => flip(c.id)} disabled={found || (mismatch && !visible)} aria-label={visible ? `${c.text}${found ? ", hittat par" : ""}` : `Vänd kort ${index + 1}`} aria-pressed={visible}>
+      return <button key={c.id} className={`memory-card ${visible ? "is-flipped" : ""} ${found ? "is-matched" : ""}`} onClick={() => flip(c.id)} disabled={found} aria-label={visible ? `${c.text}${found ? ", hittat par" : ""}` : `Vänd kort ${index + 1}`} aria-pressed={visible}>
         <span className="memory-card-inner"><span className="memory-front" aria-hidden>✦</span><span className="memory-back" aria-hidden={!visible}>{visible ? c.text : ""}{found && <span className="mt-1 text-xs">✓</span>}</span></span>
       </button>;
     })}</div>
-    <div aria-live="polite" className="min-h-12 text-center text-sm">{mismatch ? <><p>Inte ett par ännu. Titta på orden och försök igen.</p><button className="btn-secondary mt-2 text-sm" onClick={() => setFlipped([])}>Vänd tillbaka</button></> : matched.length === pairs.length ? page + 1 < pages && <button className="btn-primary" onClick={next}>Nästa bricka →</button> : <p className="text-muted">Hitta ett ord och dess översättning.</p>}</div>
+    <div aria-live="polite" className="min-h-12 text-center text-sm">{mismatch ? <p>Inte ett par ännu. Tryck på ett kort för att vända tillbaka och försöka igen.</p> : matched.length === pairs.length ? page + 1 < pages && <button className="btn-primary" onClick={next}>Nästa bricka →</button> : <p className="text-muted">Hitta ett ord och dess översättning.</p>}</div>
   </section>;
 }
 

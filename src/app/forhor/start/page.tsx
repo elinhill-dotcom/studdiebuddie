@@ -20,7 +20,7 @@ import type {
 import Link from "next/link";
 import { homeworkPractice } from "@/lib/practice";
 import { practiceBatches, type PracticeFormat } from "@/lib/practice-material";
-import { combinedAttachmentText } from "@/lib/attachments";
+import { combinedAttachmentText, normalizeAttachments } from "@/lib/attachments";
 
 async function generateForHomework(
   hw: Homework,
@@ -135,13 +135,23 @@ function StartInner() {
       for (const hw of usable) {
         const text = [hw.description, combinedAttachmentText(hw)].filter(Boolean).join("\n\n");
         const batches = practiceBatches(text, practiceFormat);
-        // Without extracted text the original images/PDFs remain the source.
-        const sections = batches.length > 1 ? batches : [{ text, count: batches[0]?.count || 12 }];
+        const attachments = normalizeAttachments(hw);
+        // A photographed homework has almost no text to split. Keep all pages,
+        // and ask questions in image batches instead of falling back to 3.
+        const visualOnly = attachments.some(a => a.kind === "image") &&
+          text.replace(/^Läxa:.*?Ämne:.*?(\n|$)/, "").trim().length < 200;
+        const sections = visualOnly
+          ? Array.from({ length: Math.ceil(attachments.length / 6) }, (_, index) => ({
+              text: "",
+              count: Math.max(4, Math.ceil(Math.min(6, attachments.length - index * 6) * 4)),
+              attachments: attachments.slice(index * 6, index * 6 + 6),
+            }))
+          : batches.length > 1 ? batches : [{ text, count: batches[0]?.count || 12 }];
         for (let part = 0; part < sections.length; part++) {
           setStatus(`Läser “${hw.title}”, del ${part + 1} av ${sections.length}. ${allQuestions.length} frågor skapade…`);
           const section = sections[part];
           const sourceHomework: Homework = sections.length > 1 ? {
-            ...hw, description: "", extractedText: section.text, attachments: [], photoDataUrl: undefined, pdfDataUrl: undefined, pdfFileName: undefined,
+            ...hw, description: "", extractedText: section.text, attachments: "attachments" in section ? section.attachments as HomeworkAttachment[] : [], photoDataUrl: undefined, pdfDataUrl: undefined, pdfFileName: undefined,
           } : hw;
           const { questions, source } = await generateForHomework(sourceHomework, section.count, practiceFormat);
           if (source === "ai") anyAi = true;
