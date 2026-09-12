@@ -33,16 +33,17 @@ export function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 /**
- * Krymper stora telefonbilder så de får plats (JPEG).
- * Telefonkameror tar ofta 5–12 MB — vi siktar på under ~1,5 MB.
+ * Krymper stora telefonbilder så de får plats i ett API-anrop (JPEG).
+ * Telefonkameror tar ofta 5–12 MB. Håll data-URL:en under 1 MB så att
+ * även mobilens kamera fungerar med Next.js request-gränsen.
  */
 export async function compressImageToDataUrl(
   file: File,
   opts?: { maxEdge?: number; quality?: number; maxBytes?: number },
 ): Promise<string> {
-  const maxEdge = opts?.maxEdge ?? 1600;
-  const quality = opts?.quality ?? 0.78;
-  const maxBytes = opts?.maxBytes ?? 1_800_000;
+  const maxEdge = opts?.maxEdge ?? 1400;
+  const quality = opts?.quality ?? 0.68;
+  const maxBytes = opts?.maxBytes ?? 750_000;
 
   const bitmap = await createImageBitmap(file);
   try {
