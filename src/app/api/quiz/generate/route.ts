@@ -101,7 +101,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const local = inventQuestionsFromHomework(hw, count);
+    const local = inventQuestionsFromHomework(hw, count, body.format || "chat");
     const questions =
       local.length >= 2 ? local : generateQuestionsFromHomework(hw, count);
 

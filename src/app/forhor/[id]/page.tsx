@@ -409,6 +409,7 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
                 : chatLang === "de"
                   ? "Tyska"
                   : hw?.subject,
+          studentName: data.profileName && data.profileName !== "Buddie" ? data.profileName : undefined,
           material: linkedHomeworks
             .map((h) => h.extractedText || h.description)
             .filter(Boolean)
@@ -462,6 +463,20 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
     if (finishingRef.current || loadData().quizSessions.find(q => q.id === id)?.finishedAt) {
       setBusy(false);
       return;
+    }
+    // I chatten räcker ett kort nyckelord ibland för rättning, men eleven
+    // ska få chans att utveckla ett tunt svar när frågan kräver resonemang.
+    const needsDevelopment = session.mode !== "vocab" && session.mode !== "exam" &&
+      attemptCount < 3 && text.split(/\s+/).filter(Boolean).length < 8 &&
+      question.expectedAnswer.split(/\s+/).filter(Boolean).length >= 18;
+    if (needsDevelopment && (result.correct || result.evaluation === "correct")) {
+      result = {
+        ...result,
+        correct: false,
+        evaluation: "partially_correct",
+        next_action: "clarify",
+        feedback: "Bra början! Kan du utveckla svaret med en viktig detalj eller ett exempel?",
+      };
     }
     const nextAction =
       result.next_action ||

@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useAppData } from "@/components/useAppData";
 import { HomeworkCard } from "@/components/HomeworkCard";
+import { deleteHomework } from "@/lib/store";
+import { notifyDataChanged } from "@/components/useAppData";
 
 export default function LaxorPage() {
-  const { data, ready } = useAppData();
+  const { data, ready, refresh } = useAppData();
   if (!ready) return <p className="text-muted">Laddar…</p>;
 
   const sorted = [...data.homeworks].sort((a, b) =>
@@ -35,8 +37,8 @@ export default function LaxorPage() {
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {sorted.map((hw) => (
-            <HomeworkCard key={hw.id} hw={hw} />
+            {sorted.map((hw) => (
+            <HomeworkCard key={hw.id} hw={hw} onDelete={() => { deleteHomework(hw.id); notifyDataChanged(); refresh(); }} />
           ))}
         </div>
       )}

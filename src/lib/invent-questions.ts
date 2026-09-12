@@ -38,9 +38,21 @@ function chunks(text: string): string[] {
   return unique;
 }
 
-function inventPrompt(fact: string, hw: Homework, i: number): string {
+type PracticeFormat = "chat" | "exam" | "flashcards";
+
+function inventPrompt(fact: string, hw: Homework, i: number, format: PracticeFormat): string {
   const short =
     fact.length > 90 ? `${fact.slice(0, 87).trim()}…` : fact;
+  if (format === "exam") {
+    return [
+      `Förklara med egna ord: ${short}`,
+      `Beskriv två viktiga saker om: ${short}`,
+      `Jämför och resonera kring: ${short}`,
+    ][i % 3];
+  }
+  if (format === "flashcards") {
+    return `Frågekort: Vad ska du komma ihåg om ${short}`;
+  }
   const variants = [
     `Utifrån din läxa: förklara med egna ord vad det här betyder — “${short}”`,
     `Varför är detta viktigt i ${hw.subject}? “${short}”`,
@@ -55,6 +67,7 @@ function inventPrompt(fact: string, hw: Homework, i: number): string {
 export function inventQuestionsFromHomework(
   hw: Homework,
   count = 6,
+  format: PracticeFormat = "chat",
 ): QuizQuestion[] {
   const tip = tipFromHomework(hw);
   const source = `${hw.extractedText}\n${hw.description}`.trim();
@@ -75,7 +88,7 @@ export function inventQuestionsFromHomework(
     if (questions.length >= count) return;
     questions.push({
       id: id(),
-      prompt: inventPrompt(fact, hw, i),
+      prompt: inventPrompt(fact, hw, i, format),
       expectedAnswer: fact,
       tip,
       topic: fact.split(/\s+/).slice(0, 3).join(" "),

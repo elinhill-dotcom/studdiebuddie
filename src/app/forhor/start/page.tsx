@@ -47,7 +47,7 @@ async function generateForHomework(
     // fall through
   }
   return {
-    questions: inventQuestionsFromHomework(hw, count),
+    questions: inventQuestionsFromHomework(hw, count, format),
     source: "local",
   };
 }

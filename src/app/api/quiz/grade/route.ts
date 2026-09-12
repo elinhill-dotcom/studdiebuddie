@@ -14,6 +14,7 @@ type Body = {
   tip?: string;
   mode?: string;
   subject?: string;
+  studentName?: string;
   attemptCount?: number;
   material?: string;
   /** Tidigare elevsvar på samma fråga (för att undvika loop) */
@@ -43,13 +44,14 @@ function teachAfterCorrect(expected?: string, material?: string): string {
 
 function localTutorFallback(body: Body): TutorTurn {
   const attempt = Math.max(1, body.attemptCount ?? 1);
+  const name = body.studentName?.trim() ? `${body.studentName.trim()}, ` : "";
   return {
     student_message:
       attempt <= 1
-        ? "Bra försök — du är igång. Titta en gång till i materialet och försök fånga den viktigaste detaljen. Vad tror du är nyckeln?"
+        ? `${name}bra försök — du är igång. Titta en gång till i materialet och försök fånga den viktigaste detaljen. Vad tror du är nyckeln?`
         : attempt === 2
-          ? "Nästan där. Vad saknas fortfarande jämfört med det du redan sagt?"
-          : "Okej, vi reder ut det kort. Sammanfatta med egna ord vad du förstår nu.",
+          ? `${name}nästan där. Vad saknas fortfarande jämfört med det du redan sagt?`
+          : `${name}okej, vi reder ut det kort. Sammanfatta med egna ord vad du förstår nu.`,
     evaluation: "incorrect",
     topic: "allmänt",
     next_action:
@@ -60,6 +62,7 @@ function localTutorFallback(body: Body): TutorTurn {
 
 async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const { gradeAnswer, gradeVocabAnswer } = await import("@/lib/ai-quiz");
+  const name = body.studentName?.trim() ? `${body.studentName.trim()}, ` : "";
   const combined = [...(body.priorAnswers || []), body.userAnswer]
     .map((s) => s.trim())
     .filter(Boolean)
@@ -68,7 +71,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   if (body.mode === "vocab") {
     const graded = gradeVocabAnswer(body.userAnswer, body.expectedAnswer);
     return {
-      student_message: graded.feedback,
+      student_message: `${name}${graded.feedback}`,
       evaluation: graded.correct ? "correct" : "incorrect",
       topic: "glosor",
       next_action: graded.correct ? "next_question" : "small_hint",
@@ -80,7 +83,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const attempt = Math.max(1, body.attemptCount ?? 1);
 
   if (graded.correct) {
-    const teach = teachAfterCorrect(body.expectedAnswer, body.material);
+    const teach = `${name}${teachAfterCorrect(body.expectedAnswer, body.material)}`;
     return {
       student_message: teach,
       evaluation: "correct",
@@ -92,7 +95,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
 
   if (graded.partial) {
     return {
-      student_message: graded.feedback,
+      student_message: `${name}${graded.feedback}`,
       evaluation: "partially_correct",
       topic: "allmänt",
       next_action: "clarify",
@@ -173,6 +176,7 @@ export async function POST(req: Request) {
     attemptCount: body.attemptCount,
     mode: body.mode,
     subject: body.subject,
+    studentName: body.studentName,
   });
 
   if (ai) {

@@ -169,6 +169,7 @@ export async function tutorEvaluateAnswer(args: {
   attemptCount?: number;
   mode?: string;
   subject?: string;
+  studentName?: string;
 }): Promise<TutorTurn | null> {
   const attemptCount = Math.max(1, args.attemptCount ?? 1);
   const priorAnswers = (args.priorAnswers || [])
@@ -189,6 +190,7 @@ export async function tutorEvaluateAnswer(args: {
     attemptCount,
     mode: args.mode || "single",
     subject: args.subject || null,
+    studentName: args.studentName || null,
   };
 
   const raw = await createStructuredResponse({

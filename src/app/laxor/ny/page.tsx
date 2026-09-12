@@ -35,9 +35,12 @@ export default function NyLaxaPage() {
   const [reminderTiming, setReminderTiming] = useState<ReminderTiming>({ choice: "60", date: "", time: "17:00" });
   const [recurringWeekly, setRecurringWeekly] = useState(false);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     if (!title.trim() || !dueDate) {
       setError("Titel och datum behövs.");
       return;
@@ -62,6 +65,7 @@ export default function NyLaxaPage() {
       reminderEnabled,
       recurringWeekly,
     });
+    setSaving(true);
     upsertHomework(hw);
     if (reminderEnabled) {
       ensureHomeworkReminder(hw, reminderTime || "09:00", at!);
@@ -73,7 +77,8 @@ export default function NyLaxaPage() {
       }
     }
     notifyDataChanged();
-    router.push(`/laxor/${hw.id}`);
+    setSaved(true);
+    window.setTimeout(() => router.push(`/laxor/${hw.id}`), 700);
   };
 
   return (
@@ -200,10 +205,11 @@ export default function NyLaxaPage() {
           )}
         </div>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && <p className="text-sm text-danger" role="alert">{error}</p>}
+        {saved && <p className="rounded-xl bg-sage-soft px-3 py-2 text-sm font-medium text-sage" role="status">Läxan är sparad! Öppnar läxan…</p>}
 
-        <button type="submit" className="btn-primary">
-          Spara läxa
+        <button type="submit" className="btn-primary" disabled={saving}>
+          {saving ? "Sparar…" : "Spara läxa"}
         </button>
       </form>
     </div>
