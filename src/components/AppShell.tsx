@@ -62,7 +62,13 @@ function ShellInner({ children }: { children: React.ReactNode }) {
             </Link>
             <div className="flex items-center gap-2">
               {!isAdmin && (
-                <div className="hidden items-center gap-2 md:flex">
+                <div
+                  className={
+                    showAppNav
+                      ? "hidden items-center gap-2 md:flex"
+                      : "flex items-center gap-2"
+                  }
+                >
                   <Link
                     href="/konto"
                     className="nav-pill bg-white/70 text-ink-soft hover:bg-white"
@@ -90,24 +96,18 @@ function ShellInner({ children }: { children: React.ReactNode }) {
                   )}
                 </div>
               )}
-              {!showAppNav && !isAdmin && (
-                <Link
-                  href="/konto"
-                  className="nav-pill bg-white/70 text-ink-soft hover:bg-white md:hidden"
-                >
-                  {loading ? "…" : user ? "Konto" : "Logga in"}
-                </Link>
-              )}
               {showAppNav && (
-                <button
-                  type="button"
-                  className="nav-pill bg-white/70 text-ink hover:bg-white md:hidden"
-                  aria-expanded={navOpen}
-                  aria-controls="mobile-nav"
-                  onClick={() => setNavOpen((open) => !open)}
-                >
-                  {navOpen ? "Stäng" : "Meny"}
-                </button>
+                <div className="md:hidden">
+                  <button
+                    type="button"
+                    className="nav-pill bg-white/70 text-ink hover:bg-white"
+                    aria-expanded={navOpen}
+                    aria-controls="mobile-nav"
+                    onClick={() => setNavOpen((open) => !open)}
+                  >
+                    {navOpen ? "Stäng" : "Meny"}
+                  </button>
+                </div>
               )}
             </div>
           </div>
