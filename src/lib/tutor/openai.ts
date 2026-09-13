@@ -159,6 +159,7 @@ async function createStructuredResponse(args: {
 }
 
 export async function tutorEvaluateAnswer(args: {
+  helpAction?: "hint" | "rephrase";
   question: string;
   expectedAnswer: string;
   userAnswer: string;
@@ -179,6 +180,7 @@ export async function tutorEvaluateAnswer(args: {
     .filter(Boolean)
     .join("\n");
   const payload = {
+    helpAction: args.helpAction || null,
     question: args.question,
     expectedAnswer: args.expectedAnswer,
     userAnswer: args.userAnswer,
@@ -194,7 +196,7 @@ export async function tutorEvaluateAnswer(args: {
   };
 
   const raw = await createStructuredResponse({
-    instructions: TUTOR_TURN_INSTRUCTIONS,
+    instructions: args.helpAction ? `${TUTOR_TURN_INSTRUCTIONS}\nEleven ber nu om hjälp, inte rättning. ${args.helpAction === "rephrase" ? "Formulera om samma fråga med enklare ord och en tydligare ingång. Behåll vad som prövas och avslöja inte svaret. Lägg inte bara en inledning framför originalfrågan." : "Ge en liten konkret ledtråd som hjälper eleven tänka, utan att avslöja svaret. Utgå från det eleven redan sagt och fråga bara om det som saknas."} Använd previousFeedback för att undvika upprepning. Sätt evaluation=not_assessable och next_action=clarify. Ingen bedömning eller beröm av ett svar som inte lämnats.` : TUTOR_TURN_INSTRUCTIONS,
     input: [
       {
         role: "user",

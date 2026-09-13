@@ -33,37 +33,6 @@ function mid() {
   return crypto.randomUUID();
 }
 
-const bridgeByLang: Record<TutorLang, string[]> = {
-  sv: [
-    "Då tar vi en annan grej från materialet:",
-    "Nice — vad säger du om det här då?",
-    "Okej, lyssna här…",
-    "En sak till jag undrar:",
-  ],
-  en: [
-    "Let's look at another part of the material:",
-    "Nice — what about this then?",
-    "Okay, check this out…",
-    "One more thing I'm curious about:",
-  ],
-  es: [
-    "Ahora otra cosa del material:",
-    "Genial — ¿y esto?",
-    "Vale, mira…",
-    "Una cosa más:",
-  ],
-  de: [
-    "Dann schauen wir uns noch etwas anderes an:",
-    "Super — und was ist damit?",
-    "Okay, hör mal…",
-    "Noch etwas, das mich interessiert:",
-  ],
-};
-
-function pick(arr: string[]) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
 function introFor(
   lang: TutorLang,
   opts: { vocab: boolean; multi: boolean; n: number; title: string; firstQ: string },
@@ -360,13 +329,12 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
       return;
     }
     const nextQ = current.questions[nextIndex];
-    const bridge = pick(bridgeByLang[chatLang]);
     setMessages((m) => [
       ...m,
       {
         id: mid(),
         role: "ai",
-        text: `${tutorText}\n\n${bridge}\n${nextQ.prompt}`,
+        text: `${tutorText}\n\n${nextQ.prompt}`,
         tone,
       },
     ]);
@@ -377,6 +345,16 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
     if (!question || isDone || busy) return;
     const text = answer.trim();
     if (!text) return;
+    if (/^(?:(?:kan du |snälla )?ge (?:mig )?|kan jag få |jag vill ha |jag behöver )?(?:en )?(?:liten )?ledtråd[?.!\s]*$/i.test(text)) {
+      setAnswer("");
+      void askForHelp("hint", text);
+      return;
+    }
+    if (/^(?:kan du |snälla )?(?:formulera om(?: frågan)?|fråga på (?:ett )?annat sätt|förklara frågan)[?.!\s]*$/i.test(text)) {
+      setAnswer("");
+      void askForHelp("rephrase", text);
+      return;
+    }
 
     setBusy(true);
     setMessages((m) => [...m, { id: mid(), role: "user", text }]);
@@ -579,26 +557,29 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
     advanceConversation(updated, soft, "pep");
   };
 
-  const askAnotherWay = () => {
-    if (!question || isDone) return;
-    const current = loadData().quizSessions.find((q) => q.id === id) || session;
-    const rewritten = rewriteQuestion(question, hw);
-    const questions = [
-      ...current.questions.slice(0, index),
-      rewritten,
-      ...current.questions.slice(index + 1),
-    ];
-    persist({ ...current, questions });
-    setAttempts((a) => ({ ...a, [rewritten.id]: 0 }));
-    const lead =
-      chatLang === "en"
-        ? "Okay, let's try it another way:"
-        : chatLang === "es"
-          ? "Vale, lo intentamos de otra forma:"
-          : chatLang === "de"
-            ? "Okay, anders formuliert:"
-            : "Okej, vi tar det på ett annat sätt:";
-    pushAi(`${lead}\n\n${rewritten.prompt}`, "pep");
+  const askForHelp = async (helpAction: "hint" | "rephrase", requestText?: string) => {
+    if (!question || isDone || busy) return;
+    setBusy(true);
+    setMessages(m => [...m, { id: mid(), role: "user", text: requestText || (helpAction === "hint" ? "Kan jag få en liten ledtråd?" : "Kan du formulera om frågan?") }]);
+    try {
+      const res = await fetch("/api/quiz/grade", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(45000),
+        body: JSON.stringify({ helpAction, prompt: question.prompt,
+          expectedAnswer: question.expectedAnswer, userAnswer: "",
+          priorAnswers: priorByQuestion[question.id] || [],
+          previousFeedback: messages.filter(m => m.role === "ai").at(-1)?.text,
+          tip: question.tip, mode: session.mode,
+          subject: chatLang === "en" ? "Engelska" : chatLang === "es" ? "Spanska" : chatLang === "de" ? "Tyska" : hw?.subject,
+          studentName: data.profileName !== "Buddie" ? data.profileName : undefined,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.feedback) throw new Error("help-unavailable");
+      if (!finishingRef.current) pushAi(result.feedback, "pep");
+    } catch {
+      if (!finishingRef.current) pushAi("Jag kunde inte hämta hjälpen just nu. Ditt svar finns kvar, så du kan försöka igen strax.", "try");
+    } finally { setBusy(false); }
   };
 
   const startRetry = () => {
@@ -754,9 +735,12 @@ function ChatSession({ session, app }: { session: QuizSession; app: ReturnType<t
                   type="button"
                   className="btn-ghost text-xs"
                   disabled={busy}
-                  onClick={askAnotherWay}
+                  onClick={() => void askForHelp("rephrase")}
                 >
-                  Fråga på annat sätt
+                  Formulera om frågan
+                </button>
+                <button type="button" className="btn-secondary text-xs" disabled={busy} onClick={() => void askForHelp("hint")}>
+                  Ge en ledtråd
                 </button>
               </div>
             </div>

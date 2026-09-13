@@ -8,6 +8,7 @@ import type { TutorTurn } from "@/lib/tutor/types";
 export const runtime = "nodejs";
 
 type Body = {
+  helpAction?: "hint" | "rephrase";
   prompt: string;
   expectedAnswer: string;
   userAnswer: string;
@@ -23,28 +24,16 @@ type Body = {
 };
 
 /** Kort fördjupning efter rätt svar (lokal fallback utan OpenAI) */
-function teachAfterCorrect(expected?: string, material?: string): string {
-  const core = (expected || "").trim().replace(/\s+/g, " ");
-  const snippet = core.slice(0, 180);
-  const fromMaterial = (material || "").trim().replace(/\s+/g, " ").slice(0, 120);
-
-  if (snippet.length > 20) {
-    return [
-      "Bra jobbat — du har det, med egna ord.",
-      `För att det ska sitta ännu bättre: ${snippet}${core.length > 180 ? "…" : ""}`,
-      fromMaterial
-        ? "Koppla gärna tillbaka till materialet när du pluggar vidare."
-        : "Tänk på varför det hänger ihop så — då blir det lättare att komma ihåg.",
-      "Då tar vi vidare.",
-    ].join(" ");
-  }
-
-  return "Bra jobbat — du har det viktiga. Kom ihåg att förklara med egna ord när du pluggar, då fastnar det bättre. Då tar vi vidare.";
+function teachAfterCorrect(body: Body): string {
+  if (body.priorAnswers?.length) return "Ja, nu har du fått med det som saknades.";
+  return body.previousFeedback?.startsWith("Ja, det stämmer.")
+    ? "Precis!"
+    : "Ja, det stämmer.";
 }
 
 function localTutorFallback(body: Body): TutorTurn {
   const attempt = Math.max(1, body.attemptCount ?? 1);
-  const name = body.studentName?.trim() ? `${body.studentName.trim()}, ` : "";
+  const name = body.studentName?.trim() && !body.previousFeedback?.includes(body.studentName.trim()) ? `${body.studentName.trim()}, ` : "";
   return {
     student_message:
       attempt <= 1
@@ -62,7 +51,7 @@ function localTutorFallback(body: Body): TutorTurn {
 
 async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const { gradeAnswer, gradeVocabAnswer } = await import("@/lib/ai-quiz");
-  const name = body.studentName?.trim() ? `${body.studentName.trim()}, ` : "";
+  const name = body.studentName?.trim() && !body.previousFeedback?.includes(body.studentName.trim()) ? `${body.studentName.trim()}, ` : "";
   const combined = [...(body.priorAnswers || []), body.userAnswer]
     .map((s) => s.trim())
     .filter(Boolean)
@@ -83,7 +72,7 @@ async function buildLocalTurn(body: Body): Promise<TutorTurn> {
   const attempt = Math.max(1, body.attemptCount ?? 1);
 
   if (graded.correct) {
-    const teach = `${name}${teachAfterCorrect(body.expectedAnswer, body.material)}`;
+    const teach = teachAfterCorrect(body);
     return {
       student_message: teach,
       evaluation: "correct",
@@ -141,6 +130,17 @@ export async function POST(req: Request) {
   const priorAnswers = (body.priorAnswers || [])
     .map((s) => String(s).trim())
     .filter(Boolean);
+
+  if (body.helpAction === "hint" || body.helpAction === "rephrase") {
+    const turn = await tutorEvaluateAnswer({
+      question: body.prompt, expectedAnswer: body.expectedAnswer,
+      userAnswer: "", priorAnswers, previousFeedback: body.previousFeedback,
+      tip: body.tip, material: body.material, subject: body.subject,
+      mode: body.mode, studentName: body.studentName, helpAction: body.helpAction,
+    });
+    if (!turn) return NextResponse.json({ error: "Jag kunde inte hämta hjälpen just nu. Försök igen strax." }, { status: 503 });
+    return NextResponse.json({ feedback: turn.student_message });
+  }
 
   if (!body.userAnswer?.trim()) {
     const turn: TutorTurn = {
